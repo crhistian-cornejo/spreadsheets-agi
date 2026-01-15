@@ -1,8 +1,29 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { IconTable, IconFileText, IconPresentation, IconArrowRight } from "@tabler/icons-react";
+import { Link, createFileRoute } from "@tanstack/react-router";
+import { IconArrowRight, IconFileText, IconPresentation, IconTable } from "@tabler/icons-react";
 import { Logo } from "@/components/ui/Logo";
 
-export const Route = createFileRoute("/")({ component: App });
+export const Route = createFileRoute("/")({
+  component: App,
+  head: () => ({
+    meta: [
+      {
+        title: "Spreadsheets-AGI | Inteligencia Artificial para tu Productividad",
+      },
+      {
+        name: "description",
+        content: "Crea hojas de cálculo, documentos y presentaciones con el poder de la IA avanzada.",
+      },
+      {
+        property: "og:title",
+        content: "Spreadsheets-AGI | La Nueva Era de las Hojas de Cálculo",
+      },
+      {
+        property: "og:image",
+        content: "/logo.svg",
+      },
+    ],
+  }),
+});
 
 function App() {
   return (
@@ -13,9 +34,9 @@ function App() {
           <Logo className="h-12 w-12 text-primary" />
           <h1 className="text-4xl font-bold">Spreadsheets-AGI</h1>
         </div>
-        
+
         <p className="text-xl text-muted-foreground text-center max-w-2xl mb-8">
-          Suite de productividad impulsada por IA. Crea hojas de cálculo, documentos y presentaciones 
+          Suite de productividad impulsada por IA. Crea hojas de cálculo, documentos y presentaciones
           usando lenguaje natural.
         </p>
 
@@ -45,7 +66,7 @@ function App() {
         </div>
 
         {/* CTA Button */}
-        <Link 
+        <Link
           to="/workspace"
           className="inline-flex items-center gap-2 px-8 py-4 bg-primary text-primary-foreground rounded-xl font-semibold text-lg hover:opacity-90 transition-opacity"
         >
@@ -60,7 +81,7 @@ function App() {
             <h4 className="font-semibold">AI Chat Mode</h4>
           </div>
           <p className="text-sm text-muted-foreground">
-            Describe lo que necesitas en lenguaje natural y la IA creará hojas de cálculo completas, 
+            Describe lo que necesitas en lenguaje natural y la IA creará hojas de cálculo completas,
             investigará datos, aplicará fórmulas y más. Como tener un asistente experto en Excel.
           </p>
         </div>

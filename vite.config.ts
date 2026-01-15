@@ -18,6 +18,14 @@ const config = defineConfig({
     tanstackStart(),
     viteReact(),
   ],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/setupTests.ts'],
+  },
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+  },
 })
 
 export default config

@@ -1,18 +1,33 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { Suspense, lazy } from "react"
+import { createFileRoute } from '@tanstack/react-router'
+import { Suspense, lazy } from 'react'
+import { WorkbookProvider } from '@/lib/stores/workbook-context'
+import { Toaster } from '@/components/ui/sonner'
 
 // Lazy load the workspace component for better performance
-const WorkspaceApp = lazy(() => import("@/components/workspace/WorkspaceApp").then(m => ({ default: m.WorkspaceApp })))
+const WorkspaceApp = lazy(() =>
+  import('@/components/workspace/WorkspaceApp').then((m) => ({
+    default: m.WorkspaceApp,
+  })),
+)
 
-export const Route = createFileRoute("/workspace")({ 
+export const Route = createFileRoute('/workspace')({
   component: WorkspacePage,
+  head: () => ({
+    meta: [
+      { title: 'Workspace | Spreadsheets-AGI' },
+      { name: 'description', content: 'Tu espacio de trabajo inteligente para hojas de cálculo y documentos.' },
+    ],
+  }),
 })
 
 function WorkspacePage() {
   return (
-    <Suspense fallback={<WorkspaceLoading />}>
-      <WorkspaceApp />
-    </Suspense>
+    <WorkbookProvider>
+      <Suspense fallback={<WorkspaceLoading />}>
+        <WorkspaceApp />
+      </Suspense>
+      <Toaster position="bottom-right" />
+    </WorkbookProvider>
   )
 }
 

@@ -5,6 +5,9 @@ node_modules/
 
 # Testing
 coverage/
+playwright-report/
+playwright/.cache/
+test-results/
 
 # Production
 dist/
@@ -17,6 +20,7 @@ dist-ssr/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.e2e
 
 # Logs
 npm-debug.log*

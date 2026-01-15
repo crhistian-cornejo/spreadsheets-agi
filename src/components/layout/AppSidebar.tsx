@@ -1,15 +1,21 @@
-import { 
-  IconTable, 
-  IconFileText, 
-  IconPresentation, 
-  IconPlus,
-  IconFolderOpen,
-  IconSettings,
-  IconMoon,
-  IconSun,
+'use client'
+
+import {
   IconChevronsDown,
-} from "@tabler/icons-react"
-import { Logo } from "@/components/ui/Logo"
+  IconCopy,
+  IconDotsVertical,
+  IconDownload,
+  IconFileText,
+  IconFolderOpen,
+  IconMessage,
+  IconPlus,
+  IconPresentation,
+  IconTable,
+  IconTrash,
+} from '@tabler/icons-react'
+import { UserAccountMenu } from './UserAccountMenu'
+import type { Chat, Workbook } from '@/lib/supabase'
+import { Logo } from '@/components/ui/Logo'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,7 +24,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from '@/components/ui/dropdown-menu'
 import {
   Sidebar,
   SidebarContent,
@@ -28,37 +34,103 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-} from "@/components/ui/sidebar"
+} from '@/components/ui/sidebar'
+
+// Format relative time helper
+function formatRelativeTime(date: Date | string): string {
+  const now = new Date()
+  const past = typeof date === 'string' ? new Date(date) : date
+  const diffMs = now.getTime() - past.getTime()
+  const diffSecs = Math.floor(diffMs / 1000)
+  const diffMins = Math.floor(diffSecs / 60)
+  const diffHours = Math.floor(diffMins / 60)
+  const diffDays = Math.floor(diffHours / 24)
+
+  if (diffSecs < 60) return 'hace un momento'
+  if (diffMins < 60)
+    return `hace ${diffMins} ${diffMins === 1 ? 'minuto' : 'minutos'}`
+  if (diffHours < 24)
+    return `hace ${diffHours} ${diffHours === 1 ? 'hora' : 'horas'}`
+  if (diffDays === 1) return 'ayer'
+  if (diffDays < 7) return `hace ${diffDays} días`
+  if (diffDays < 30) return `hace ${Math.floor(diffDays / 7)} semanas`
+  return past.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+}
 
 interface AppSidebarProps {
-  currentApp: "sheets" | "docs" | "slides"
-  onAppChange: (app: "sheets" | "docs" | "slides") => void
+  currentApp: 'sheets' | 'docs' | 'slides'
+  onAppChange: (app: 'sheets' | 'docs' | 'slides') => void
   darkMode: boolean
   onDarkModeToggle: () => void
+  // Props for file management
+  recentWorkbooks: Array<Workbook>
+  activeWorkbookId: string | null
+  onCreateNew: () => void
+  onOpenFile: () => void
+  onLoadWorkbook: (id: string) => void
+  onDeleteWorkbook: (id: string) => void
+  onDuplicateWorkbook: (id: string) => void
+  onExportWorkbook: (id: string) => void
+  onOpenSettings: () => void
+  onOpenProfile: () => void
+  onSignOut: () => void
+  // Props for chat history
+  recentChats?: Array<Chat>
+  activeChatId?: string | null
+  onCreateChat?: () => void
+  onLoadChat?: (id: string) => void
+  onDeleteChat?: (id: string) => void
 }
 
 const apps = [
-  { id: "sheets" as const, name: "Sheets", icon: IconTable, color: "text-emerald-500" },
-  { id: "docs" as const, name: "Docs", icon: IconFileText, color: "text-blue-500" },
-  { id: "slides" as const, name: "Slides", icon: IconPresentation, color: "text-amber-500", disabled: true },
+  {
+    id: 'sheets' as const,
+    name: 'Sheets',
+    icon: IconTable,
+    color: 'text-emerald-500',
+  },
+  {
+    id: 'docs' as const,
+    name: 'Docs',
+    icon: IconFileText,
+    color: 'text-blue-500',
+  },
+  {
+    id: 'slides' as const,
+    name: 'Slides',
+    icon: IconPresentation,
+    color: 'text-amber-500',
+    disabled: true,
+  },
 ]
 
-const recentFiles = [
-  { id: "1", name: "Budget 2026", type: "sheets", updatedAt: "hace 2 horas" },
-  { id: "2", name: "Proyecto Propuesta", type: "docs", updatedAt: "ayer" },
-  { id: "3", name: "Inventario Q1", type: "sheets", updatedAt: "hace 3 días" },
-]
-
-export function AppSidebar({ 
-  currentApp, 
-  onAppChange, 
-  darkMode, 
-  onDarkModeToggle 
+export function AppSidebar({
+  currentApp,
+  onAppChange,
+  darkMode,
+  onDarkModeToggle,
+  recentWorkbooks,
+  activeWorkbookId,
+  onCreateNew,
+  onOpenFile,
+  onLoadWorkbook,
+  onDeleteWorkbook,
+  onDuplicateWorkbook,
+  onExportWorkbook,
+  onOpenSettings,
+  onOpenProfile,
+  onSignOut,
+  recentChats = [],
+  activeChatId,
+  onCreateChat,
+  onLoadChat,
+  onDeleteChat,
 }: AppSidebarProps) {
-  const currentAppData = apps.find(app => app.id === currentApp)
+  const currentAppData = apps.find((app) => app.id === currentApp)
 
   return (
     <Sidebar collapsible="icon">
@@ -66,20 +138,21 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>
-              <DropdownMenuTrigger>
-                <SidebarMenuButton
-                  size="lg"
-                  className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-                >
-                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <DropdownMenuTrigger className="w-full">
+                <div className="flex w-full items-center gap-2 overflow-hidden rounded-lg p-2 text-left outline-none ring-sidebar-ring transition-all hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-1! h-12 text-sm cursor-pointer bg-muted/30 border border-transparent hover:border-border/50 transition-colors">
+                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0 shadow-sm">
                     <Logo className="size-5" />
                   </div>
-                  <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold text-primary">S-AGI</span>
-                    <span className="truncate text-xs">Spreadsheets Plus</span>
+                  <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
+                    <span className="truncate font-semibold text-foreground">
+                      S-AGI
+                    </span>
+                    <span className="truncate text-[10px] text-muted-foreground/80">
+                      Spreadsheets Plus
+                    </span>
                   </div>
-                  <IconChevronsDown className="ml-auto size-4" />
-                </SidebarMenuButton>
+                  <IconChevronsDown className="ml-auto size-4 group-data-[collapsible=icon]:hidden text-muted-foreground/60" />
+                </div>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
@@ -107,11 +180,13 @@ export function AppSidebar({
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
-                  <DropdownMenuItem className="gap-2 p-2">
+                  <DropdownMenuItem className="gap-2 p-2" disabled>
                     <div className="flex size-6 items-center justify-center rounded-sm border">
                       <IconPlus className="size-4" />
                     </div>
-                    <div className="font-medium text-muted-foreground">Add App</div>
+                    <div className="font-medium text-muted-foreground">
+                      Más apps (pronto)
+                    </div>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
               </DropdownMenuContent>
@@ -119,21 +194,31 @@ export function AppSidebar({
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
-      
+
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Acciones</SidebarGroupLabel>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton tooltip={`Nuevo ${currentAppData?.name === "Sheets" ? "Spreadsheet" : "Documento"}`}>
+              <SidebarMenuButton
+                tooltip={`Nuevo ${currentAppData?.name === 'Sheets' ? 'Spreadsheet' : 'Documento'}`}
+                onClick={onCreateNew}
+              >
                 <IconPlus />
-                <span>Nuevo {currentAppData?.name === "Sheets" ? "Spreadsheet" : "Documento"}</span>
+                <span className="group-data-[collapsible=icon]:hidden">
+                  Nuevo{' '}
+                  {currentAppData?.name === 'Sheets'
+                    ? 'Spreadsheet'
+                    : 'Documento'}
+                </span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton tooltip="Abrir archivo">
+              <SidebarMenuButton tooltip="Abrir archivo" onClick={onOpenFile}>
                 <IconFolderOpen />
-                <span>Abrir archivo</span>
+                <span className="group-data-[collapsible=icon]:hidden">
+                  Abrir archivo
+                </span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -143,40 +228,163 @@ export function AppSidebar({
           <SidebarGroupLabel>Archivos Recientes</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {recentFiles.map((file) => {
-                const FileIcon = file.type === "sheets" ? IconTable : IconFileText
-                const iconColor = file.type === "sheets" ? "text-emerald-500" : "text-blue-500"
-                
-                return (
-                  <SidebarMenuItem key={file.id}>
-                    <SidebarMenuButton tooltip={file.name}>
-                      <FileIcon className={iconColor} />
-                      <div className="flex flex-col">
-                        <span className="truncate">{file.name}</span>
-                        <span className="text-[10px] text-muted-foreground">{file.updatedAt}</span>
-                      </div>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )
-              })}
+              {recentWorkbooks.length === 0 ? (
+                <div className="px-2 py-4 text-center group-data-[collapsible=icon]:hidden">
+                  <p className="text-xs text-muted-foreground">
+                    No hay archivos recientes
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/70 mt-1">
+                    Crea un archivo nuevo para comenzar
+                  </p>
+                </div>
+              ) : (
+                recentWorkbooks.map((workbook) => {
+                  const FileIcon =
+                    workbook.type === 'sheets' ? IconTable : IconFileText
+                  const iconColor =
+                    workbook.type === 'sheets'
+                      ? 'text-emerald-500'
+                      : 'text-blue-500'
+                  const isActive = workbook.id === activeWorkbookId
+
+                  return (
+                    <SidebarMenuItem key={workbook.id}>
+                      <SidebarMenuButton
+                        tooltip={workbook.name}
+                        onClick={() => onLoadWorkbook(workbook.id)}
+                        isActive={isActive}
+                      >
+                        <FileIcon className={iconColor} />
+                        <div className="flex flex-col group-data-[collapsible=icon]:hidden">
+                          <span className="truncate">{workbook.name}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {formatRelativeTime(workbook.updated_at)}
+                          </span>
+                        </div>
+                      </SidebarMenuButton>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger>
+                          <SidebarMenuAction showOnHover>
+                            <IconDotsVertical className="size-4" />
+                            <span className="sr-only">Más opciones</span>
+                          </SidebarMenuAction>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          className="w-48 rounded-lg"
+                          side="right"
+                          align="start"
+                        >
+                          <DropdownMenuItem
+                            onClick={() => onDuplicateWorkbook(workbook.id)}
+                            className="gap-2"
+                          >
+                            <IconCopy className="size-4" />
+                            <span>Duplicar</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => onExportWorkbook(workbook.id)}
+                            className="gap-2"
+                          >
+                            <IconDownload className="size-4" />
+                            <span>Exportar JSON</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => onDeleteWorkbook(workbook.id)}
+                            className="gap-2 text-destructive focus:text-destructive"
+                          >
+                            <IconTrash className="size-4" />
+                            <span>Eliminar</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </SidebarMenuItem>
+                  )
+                })
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* Chat History Section */}
+        {recentChats.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="flex items-center justify-between">
+              <span>Conversaciones</span>
+              {onCreateChat && (
+                <button
+                  type="button"
+                  onClick={onCreateChat}
+                  className="p-0.5 rounded hover:bg-muted transition-colors"
+                  title="Nueva conversación"
+                  aria-label="Nueva conversación"
+                >
+                  <IconPlus className="size-3.5" />
+                </button>
+              )}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {recentChats.slice(0, 5).map((chat) => {
+                  const isActive = chat.id === activeChatId
+
+                  return (
+                    <SidebarMenuItem key={chat.id}>
+                      <SidebarMenuButton
+                        tooltip={chat.title}
+                        onClick={() => onLoadChat?.(chat.id)}
+                        isActive={isActive}
+                      >
+                        <IconMessage className="text-primary" />
+                        <div className="flex flex-col group-data-[collapsible=icon]:hidden">
+                          <span className="truncate">{chat.title}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {formatRelativeTime(chat.updated_at)}
+                          </span>
+                        </div>
+                      </SidebarMenuButton>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger>
+                          <SidebarMenuAction showOnHover>
+                            <IconDotsVertical className="size-4" />
+                            <span className="sr-only">Más opciones</span>
+                          </SidebarMenuAction>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          className="w-48 rounded-lg"
+                          side="right"
+                          align="start"
+                        >
+                          <DropdownMenuItem
+                            onClick={() => onDeleteChat?.(chat.id)}
+                            className="gap-2 text-destructive focus:text-destructive"
+                          >
+                            <IconTrash className="size-4" />
+                            <span>Eliminar</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton onClick={onDarkModeToggle} tooltip={darkMode ? "Modo Claro" : "Modo Oscuro"}>
-              {darkMode ? <IconSun /> : <IconMoon />}
-              <span>{darkMode ? "Light Mode" : "Dark Mode"}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton tooltip="Configuración">
-              <IconSettings />
-              <span>Configuración</span>
-            </SidebarMenuButton>
+            <UserAccountMenu
+              isSidebar
+              showLabel
+              darkMode={darkMode}
+              onDarkModeToggle={onDarkModeToggle}
+              onOpenSettings={onOpenSettings}
+              onOpenProfile={onOpenProfile}
+              onSignOut={onSignOut}
+            />
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

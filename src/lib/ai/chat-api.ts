@@ -6,172 +6,199 @@ import {
   convertToModelMessages,
   streamText,
   tool,
-} from "ai"
-import { createOpenAI } from "@ai-sdk/openai"
-import { z } from "zod"
+} from 'ai'
+import { createOpenAI } from '@ai-sdk/openai'
+import { z } from 'zod'
 
 // Configure OpenAI - uses OPENAI_API_KEY env var by default
 const openai = createOpenAI({
-  // apiKey: process.env.OPENAI_API_KEY, // defaults to process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY,
 })
 
 // Define spreadsheet tools - NO execute functions!
 // These will be executed on the client side via onToolCall
 const tools = {
   // Create a new spreadsheet with initial data
+  // NO execute function - handled client-side via onToolCall
   createSpreadsheet: tool({
-    description: "Create a new spreadsheet with a title, column headers, and initial data rows. Use this tool when the user asks to create a table, spreadsheet, or dataset.",
+    description:
+      'Create a new spreadsheet with a title, column headers, and initial data rows. Use this tool when the user asks to create a table, spreadsheet, or dataset.',
     inputSchema: z.object({
-      title: z.string().describe("The title/name for the spreadsheet"),
-      columns: z.array(z.string()).describe("Column headers for the spreadsheet (e.g., ['Nombre', 'Edad', 'Ciudad'])"),
-      rows: z.array(z.array(z.string())).optional().describe("Initial data rows as 2D array. Each inner array is a row matching the columns order."),
+      title: z.string().describe('The title/name for the spreadsheet'),
+      columns: z
+        .array(z.string())
+        .describe(
+          "Column headers for the spreadsheet (e.g., ['Nombre', 'Edad', 'Ciudad'])",
+        ),
+      rows: z
+        .array(z.array(z.string()))
+        .optional()
+        .describe(
+          'Initial data rows as 2D array. Each inner array is a row matching the columns order.',
+        ),
     }),
-    execute: async (args) => {
-      return {
-        type: "create_spreadsheet",
-        ...args,
-        sheetId: `sheet-${Math.random().toString(36).substring(2, 9)}`,
-      }
-    },
   }),
 
   // Add data to cells
+  // NO execute function - handled client-side via onToolCall
   addData: tool({
-    description: "Add or update data in specific cells of the spreadsheet. Use Excel-style range notation.",
+    description:
+      'Add or update data in specific cells of the spreadsheet. Use Excel-style range notation.',
     inputSchema: z.object({
-      range: z.string().describe("Cell range like A1, B2:C5, or A2:D10"),
-      values: z.array(z.array(z.string())).describe("2D array of values to insert, matching the range dimensions"),
+      range: z.string().describe('Cell range like A1, B2:C5, or A2:D10'),
+      values: z
+        .array(z.array(z.string()))
+        .describe(
+          '2D array of values to insert, matching the range dimensions',
+        ),
     }),
-    execute: async (args) => {
-      return {
-        type: "add_data",
-        ...args,
-      }
-    },
   }),
 
   // Apply formula
+  // NO execute function - handled client-side via onToolCall
   applyFormula: tool({
-    description: "Apply a formula to a specific cell. The formula will be calculated automatically.",
+    description:
+      'Apply a formula to a specific cell. The formula will be calculated automatically.',
     inputSchema: z.object({
-      cell: z.string().describe("Target cell reference like C10, B5, etc."),
-      formula: z.string().describe("Excel-style formula starting with =, like =SUM(A1:A10), =AVERAGE(B:B), =IF(A1>10,'Yes','No'), =COUNT(A:A)"),
+      cell: z.string().describe('Target cell reference like C10, B5, etc.'),
+      formula: z
+        .string()
+        .describe(
+          "Excel-style formula starting with =, like =SUM(A1:A10), =AVERAGE(B:B), =IF(A1>10,'Yes','No'), =COUNT(A:A)",
+        ),
     }),
-    execute: async (args) => {
-      return {
-        type: "apply_formula",
-        ...args,
-      }
-    },
   }),
 
   // Sort data
+  // NO execute function - handled client-side via onToolCall
   sortData: tool({
-    description: "Sort spreadsheet data by a specific column in ascending or descending order",
+    description:
+      'Sort spreadsheet data by a specific column in ascending or descending order',
     inputSchema: z.object({
-      column: z.string().describe("Column letter to sort by (e.g., 'A', 'B', 'C')"),
-      order: z.enum(["asc", "desc"]).describe("Sort order: 'asc' for ascending, 'desc' for descending"),
-      range: z.string().optional().describe("Optional range to sort, defaults to all data"),
+      column: z
+        .string()
+        .describe("Column letter to sort by (e.g., 'A', 'B', 'C')"),
+      order: z
+        .enum(['asc', 'desc'])
+        .describe("Sort order: 'asc' for ascending, 'desc' for descending"),
+      range: z
+        .string()
+        .optional()
+        .describe('Optional range to sort, defaults to all data'),
     }),
-    execute: async (args) => {
-      return {
-        type: "sort_data",
-        ...args,
-      }
-    },
   }),
 
   // Filter data
+  // NO execute function - handled client-side via onToolCall
   filterData: tool({
-    description: "Apply a filter to show only rows matching specific criteria",
+    description: 'Apply a filter to show only rows matching specific criteria',
     inputSchema: z.object({
-      column: z.string().describe("Column letter to filter on (e.g., 'A', 'B')"),
-      operator: z.enum(["equals", "contains", "greater_than", "less_than", "not_empty"]).describe("Filter operator type"),
-      value: z.string().optional().describe("Value to compare against (not needed for not_empty)"),
+      column: z
+        .string()
+        .describe("Column letter to filter on (e.g., 'A', 'B')"),
+      operator: z
+        .enum(['equals', 'contains', 'greater_than', 'less_than', 'not_empty'])
+        .describe('Filter operator type'),
+      value: z
+        .string()
+        .optional()
+        .describe('Value to compare against (not needed for not_empty)'),
     }),
-    execute: async (args) => {
-      return {
-        type: "filter_data",
-        ...args,
-      }
-    },
   }),
 
   // Format cells
+  // NO execute function - handled client-side via onToolCall
   formatCells: tool({
-    description: "Apply visual formatting to cells (bold, colors, alignment). Great for headers and highlighting important data.",
+    description:
+      'Apply visual formatting to cells (bold, colors, alignment). Great for headers and highlighting important data.',
     inputSchema: z.object({
-      range: z.string().describe("Cell range to format like A1:B5, A1:A1 for single cell"),
-      style: z.object({
-        bold: z.boolean().optional().describe("Make text bold"),
-        italic: z.boolean().optional().describe("Make text italic"),
-        textColor: z.string().optional().describe("Hex color for text like #FF0000 for red"),
-        backgroundColor: z.string().optional().describe("Hex color for cell background like #FFFF00 for yellow"),
-        alignment: z.enum(["left", "center", "right"]).optional().describe("Text horizontal alignment"),
-      }).describe("Style properties to apply to the range"),
+      range: z
+        .string()
+        .describe('Cell range to format like A1:B5, A1:A1 for single cell'),
+      style: z
+        .object({
+          bold: z.boolean().optional().describe('Make text bold'),
+          italic: z.boolean().optional().describe('Make text italic'),
+          textColor: z
+            .string()
+            .optional()
+            .describe('Hex color for text like #FF0000 for red'),
+          backgroundColor: z
+            .string()
+            .optional()
+            .describe('Hex color for cell background like #FFFF00 for yellow'),
+          alignment: z
+            .enum(['left', 'center', 'right'])
+            .optional()
+            .describe('Text horizontal alignment'),
+        })
+        .describe('Style properties to apply to the range'),
     }),
-    execute: async (args) => {
-      return {
-        type: "format_cells",
-        ...args,
-      }
-    },
   }),
 
   // Create Chart
+  // NO execute function - handled client-side via onToolCall
   createChart: tool({
-    description: "Create a chart visualization (bar, line, pie, etc.) from spreadsheet data to visualize trends and comparisons",
+    description:
+      'Create a chart visualization (bar, line, pie, etc.) from spreadsheet data to visualize trends and comparisons',
     inputSchema: z.object({
-      title: z.string().describe("Title of the chart"),
-      type: z.enum(["bar", "line", "pie", "area", "column", "scatter"]).describe("Type of chart to create"),
-      dataRange: z.string().describe("Range of data to visualize (e.g., 'A1:B10')"),
-      xAxisColumn: z.string().optional().describe("Column for X-axis labels (e.g., 'A')"),
-      seriesColumns: z.array(z.string()).optional().describe("Columns for data series (e.g., ['B', 'C'])"),
+      title: z.string().describe('Title of the chart'),
+      type: z
+        .enum(['bar', 'line', 'pie', 'area', 'column', 'scatter'])
+        .describe('Type of chart to create'),
+      dataRange: z
+        .string()
+        .describe("Range of data to visualize (e.g., 'A1:B10')"),
+      xAxisColumn: z
+        .string()
+        .optional()
+        .describe("Column for X-axis labels (e.g., 'A')"),
+      seriesColumns: z
+        .array(z.string())
+        .optional()
+        .describe("Columns for data series (e.g., ['B', 'C'])"),
     }),
-    execute: async (args) => {
-      return {
-        type: "create_chart",
-        chartId: `chart-${Math.random().toString(36).substring(2, 9)}`,
-        ...args,
-      }
-    },
   }),
 
   // Insert Pivot Table
+  // NO execute function - handled client-side via onToolCall
   insertPivotTable: tool({
-    description: "Analyze data by creating a pivot table for aggregation and summary statistics",
+    description:
+      'Analyze data by creating a pivot table for aggregation and summary statistics',
     inputSchema: z.object({
       sourceRange: z.string().describe("Source data range (e.g., 'A1:D100')"),
-      targetCell: z.string().describe("Where to place the pivot table (e.g., 'F1')"),
-      rows: z.array(z.string()).describe("Columns to use for grouping rows"),
-      columns: z.array(z.string()).optional().describe("Columns to use for grouping columns"),
-      values: z.array(z.object({
-        column: z.string(),
-        summarizeBy: z.enum(["SUM", "COUNT", "AVERAGE", "MAX", "MIN"]).default("SUM"),
-      })).describe("Values to aggregate with summary function"),
+      targetCell: z
+        .string()
+        .describe("Where to place the pivot table (e.g., 'F1')"),
+      rows: z.array(z.string()).describe('Columns to use for grouping rows'),
+      columns: z
+        .array(z.string())
+        .optional()
+        .describe('Columns to use for grouping columns'),
+      values: z
+        .array(
+          z.object({
+            column: z.string(),
+            summarizeBy: z
+              .enum(['SUM', 'COUNT', 'AVERAGE', 'MAX', 'MIN'])
+              .default('SUM'),
+          }),
+        )
+        .describe('Values to aggregate with summary function'),
     }),
-    execute: async (args) => {
-      return {
-        type: "insert_pivot_table",
-        pivotId: `pivot-${Math.random().toString(36).substring(2, 9)}`,
-        ...args,
-      }
-    },
   }),
 
   // Calculate statistics
+  // NO execute function - handled client-side via onToolCall
   calculateStats: tool({
-    description: "Calculate summary statistics (sum, average, min, max, count) for a range of data",
+    description:
+      'Calculate summary statistics (sum, average, min, max, count) for a range of data',
     inputSchema: z.object({
-      range: z.string().describe("Data range to analyze like B2:B100"),
-      metrics: z.array(z.enum(["sum", "average", "min", "max", "count"])).describe("Statistics to calculate"),
+      range: z.string().describe('Data range to analyze like B2:B100'),
+      metrics: z
+        .array(z.enum(['sum', 'average', 'min', 'max', 'count']))
+        .describe('Statistics to calculate'),
     }),
-    execute: async (args) => {
-      return {
-        type: "calculate_stats",
-        ...args,
-      }
-    },
   }),
 } satisfies ToolSet
 
@@ -217,21 +244,63 @@ Para "crea datos de ventas mensuales", usa:
 // API handler for TanStack Start
 export async function POST(request: Request) {
   try {
-    const { messages }: { messages: ChatMessage[] } = await request.json()
+    // Validate API key
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('[Chat API] OPENAI_API_KEY not configured')
+      return new Response(
+        JSON.stringify({
+          error: 'API key not configured',
+          message: 'Please set OPENAI_API_KEY in your environment variables',
+        }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const body = await request.json()
+    const { messages }: { messages: ChatMessage[] } = body
+
+    console.log('[Chat API] Received', messages?.length || 0, 'messages')
+
+    if (!messages || messages.length === 0) {
+      return new Response(JSON.stringify({ error: 'No messages provided' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
 
     const result = streamText({
-      model: openai("gpt-5-nano-2025-08-07"),
+      model: openai('gpt-4o-mini'),
       system: systemPrompt,
       messages: await convertToModelMessages(messages),
       tools,
     })
 
-    return result.toUIMessageStreamResponse()
+    return result.toUIMessageStreamResponse({
+      sendStart: true,
+      sendFinish: true,
+    })
   } catch (error) {
-    console.error("Chat API error:", error)
+    console.error('[Chat API] Error:', error)
+
+    // Check for specific OpenAI errors
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error'
+    const isAuthError =
+      errorMessage.includes('401') ||
+      errorMessage.includes('Unauthorized') ||
+      errorMessage.includes('API key')
+
     return new Response(
-      JSON.stringify({ error: "Error processing chat request" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      JSON.stringify({
+        error: isAuthError
+          ? 'Invalid API key'
+          : 'Error processing chat request',
+        message: errorMessage,
+      }),
+      {
+        status: isAuthError ? 401 : 500,
+        headers: { 'Content-Type': 'application/json' },
+      },
     )
   }
 }

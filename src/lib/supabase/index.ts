@@ -21,3 +21,9 @@ export type {
   Json,
   DocumentCategory,
 } from './types'
+
+// Chat service types for UIMessage persistence
+export type {
+  StoredUIMessagePart,
+  StoredUIMessageMetadata,
+} from './chat-service'

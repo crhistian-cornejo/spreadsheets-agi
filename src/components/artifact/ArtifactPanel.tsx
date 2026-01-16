@@ -23,7 +23,7 @@ import {
 } from '@/components/ai-elements/artifact'
 
 import { useChatContext } from '@/components/chat/ChatProvider'
-import type { ArtifactHistoryItem } from '@/hooks/useSpreadsheetChat'
+import type { ArtifactHistoryItem } from '@/hooks/use-spreadsheet-chat'
 
 // ============================================================================
 // ArtifactPanel Component

@@ -1,8 +1,8 @@
 export { useIsMobile } from './use-mobile'
-export { useChatHistory } from './useChatHistory'
-export { useCloudStorage } from './useCloudStorage'
+export { useChatHistory } from './use-chat-history'
+export { useCloudStorage } from './use-cloud-storage'
 export {
   useSpreadsheetChat,
   type ArtifactHistoryItem,
   type ChatMessageInput,
-} from './useSpreadsheetChat'
+} from './use-spreadsheet-chat'

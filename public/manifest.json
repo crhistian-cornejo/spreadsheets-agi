@@ -1,15 +1,17 @@
 {
-  "short_name": "TanStack App",
-  "name": "Create TanStack App Sample",
+  "short_name": "Spreadsheets-AGI",
+  "name": "Spreadsheets-AGI - Suite de Productividad con IA",
+  "description": "Suite de productividad impulsada por IA. Crea hojas de cálculo, documentos y presentaciones usando lenguaje natural.",
   "icons": [
     {
-      "src": "logo.svg",
+      "src": "/logo.svg",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
-  "theme_color": "#000000",
+  "theme_color": "#A78BFA",
   "background_color": "#ffffff"
 }

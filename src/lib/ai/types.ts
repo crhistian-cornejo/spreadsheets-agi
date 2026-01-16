@@ -1,8 +1,7 @@
 /**
  * Shared types for AI Chat and Tool execution
+ * These are the canonical type definitions - tools.ts uses Zod schemas
  */
-
-import type { UIMessage, FileUIPart, ToolUIPart } from 'ai'
 
 // ============================================================================
 // Tool Input Types (what the AI sends)
@@ -93,7 +92,7 @@ export interface CreateSpreadsheetOutput {
   title: string
   columns: string[]
   rowCount: number
-  workbookData: Record<string, unknown>
+  workbookData?: Record<string, unknown>
 }
 
 export interface AddDataOutput {
@@ -161,7 +160,7 @@ export type SpreadsheetToolOutput =
 // Artifact Types
 // ============================================================================
 
-export type ArtifactType = 'sheet' | 'chart' | 'pivot'
+export type ArtifactType = 'sheet' | 'chart' | 'pivot' | 'doc'
 
 export interface SpreadsheetArtifact {
   id: string
@@ -172,26 +171,31 @@ export interface SpreadsheetArtifact {
 }
 
 // ============================================================================
-// Chat Types
+// Chat Types (TanStack AI compatible)
 // ============================================================================
 
 export type ChatRole = 'user' | 'assistant' | 'system'
 
-export interface ChatMessagePart {
-  type: 'text' | 'file' | 'tool-invocation'
-  text?: string
-  file?: FileUIPart
-  toolInvocation?: ToolUIPart
+// TanStack AI uses 'parts' array format
+export interface TextPart {
+  type: 'text'
+  content: string
 }
 
-// Extended UIMessage with our specific types
-export type AIChatMessage = UIMessage
+export interface ToolCallPart {
+  type: 'tool-call'
+  name: string
+  input: unknown
+  output?: unknown
+}
+
+export type MessagePart = TextPart | ToolCallPart
 
 // ============================================================================
 // Tool Names
 // ============================================================================
 
-export const SPREADSHEET_TOOL_NAMES = [
+export const TOOL_NAMES = [
   'createSpreadsheet',
   'addData',
   'applyFormula',
@@ -203,10 +207,10 @@ export const SPREADSHEET_TOOL_NAMES = [
   'calculateStats',
 ] as const
 
-export type SpreadsheetToolName = (typeof SPREADSHEET_TOOL_NAMES)[number]
+export type SpreadsheetToolName = (typeof TOOL_NAMES)[number]
 
 export function isSpreadsheetTool(
   toolName: string,
 ): toolName is SpreadsheetToolName {
-  return SPREADSHEET_TOOL_NAMES.includes(toolName as SpreadsheetToolName)
+  return TOOL_NAMES.includes(toolName as SpreadsheetToolName)
 }

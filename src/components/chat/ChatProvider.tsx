@@ -1,29 +1,29 @@
 'use client'
 
 import * as React from 'react'
-import type { UIMessage } from '@ai-sdk/react'
 import type { UniverSheetHandle } from '@/components/univer'
+import type { UIMessage } from '@tanstack/ai-react'
 import {
   useSpreadsheetChat,
   type ArtifactHistoryItem,
-  type ChatMessageInput,
-} from '@/hooks/useSpreadsheetChat'
+  type StoredArtifact,
+} from '@/hooks/use-spreadsheet-chat'
+import type { StoredUIMessagePart } from '@/lib/supabase'
 
 // ============================================================================
 // Context Types
 // ============================================================================
 
 export interface ChatContextValue {
-  // Chat state
+  // Chat state - using TanStack AI UIMessage format
   messages: UIMessage[]
-  status: 'ready' | 'submitted' | 'streaming' | 'error'
-  error: Error | undefined
+  isLoading: boolean
   isStreaming: boolean
-  isGenerating: boolean
+  error: Error | null
 
   // Chat actions
-  sendMessage: (message: ChatMessageInput) => void
-  sendText: (text: string) => void
+  sendMessage: (text: string) => void
+  stop: () => void
 
   // Artifact state
   currentArtifact: ArtifactHistoryItem | null
@@ -64,8 +64,15 @@ export interface ChatProviderProps {
   chatId?: string
   /** Initial messages to load */
   initialMessages?: UIMessage[]
-  /** Callback when a message is sent (for persistence) */
-  onMessageSent?: (role: 'user' | 'assistant', content: string) => void
+  /** Initial artifacts from loaded chat */
+  initialArtifacts?: StoredArtifact[]
+  /** Callback when a message needs to be persisted (with full parts) */
+  onMessagePersist?: (message: {
+    id: string
+    role: 'user' | 'assistant'
+    parts: StoredUIMessagePart[]
+    artifacts?: StoredArtifact[]
+  }) => void
   /** Reference to Univer sheet for tool execution */
   univerRef: React.RefObject<UniverSheetHandle | null>
 }
@@ -78,25 +85,34 @@ export function ChatProvider({
   children,
   chatId,
   initialMessages,
-  onMessageSent,
+  initialArtifacts,
+  onMessagePersist,
   univerRef,
 }: ChatProviderProps) {
   const chat = useSpreadsheetChat({
     chatId,
     initialMessages,
-    onMessageSent,
+    initialArtifacts,
+    onMessagePersist,
     univerRef,
   })
+
+  // Wrap sendMessage to accept plain string (for backwards compatibility)
+  const sendMessage = React.useCallback(
+    (text: string) => {
+      chat.sendText(text)
+    },
+    [chat.sendText],
+  )
 
   const value: ChatContextValue = React.useMemo(
     () => ({
       messages: chat.messages,
-      status: chat.status,
-      error: chat.error,
+      isLoading: chat.isLoading,
       isStreaming: chat.isStreaming,
-      isGenerating: chat.isGenerating,
-      sendMessage: chat.sendMessage,
-      sendText: chat.sendText,
+      error: chat.error,
+      sendMessage,
+      stop: chat.stop,
       currentArtifact: chat.currentArtifact,
       artifactHistory: chat.artifactHistory,
       setCurrentArtifact: chat.setCurrentArtifact,
@@ -105,12 +121,11 @@ export function ChatProvider({
     }),
     [
       chat.messages,
-      chat.status,
-      chat.error,
+      chat.isLoading,
       chat.isStreaming,
-      chat.isGenerating,
-      chat.sendMessage,
-      chat.sendText,
+      chat.error,
+      sendMessage,
+      chat.stop,
       chat.currentArtifact,
       chat.artifactHistory,
       chat.setCurrentArtifact,
@@ -121,3 +136,13 @@ export function ChatProvider({
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>
 }
+
+// ============================================================================
+// Re-export types for consumers
+// ============================================================================
+
+export type { UIMessage } from '@tanstack/ai-react'
+export type {
+  ArtifactHistoryItem,
+  StoredArtifact,
+} from '@/hooks/use-spreadsheet-chat'

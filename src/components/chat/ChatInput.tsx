@@ -71,7 +71,7 @@ export function ChatInput({
   multiple = true,
   footerText = 'S-AGI puede cometer errores. Revisa la información importante.',
 }: ChatInputProps) {
-  const { messages, status, isGenerating, sendMessage } = useChatContext()
+  const { messages, isLoading, isStreaming, sendMessage } = useChatContext()
   const [selectedModel, setSelectedModel] = React.useState(AI_MODELS[0].id)
 
   // Handle form submission
@@ -80,8 +80,8 @@ export function ChatInput({
       console.log('[ChatInput] handleSubmit called:', {
         text: message.text,
         filesCount: message.files.length,
-        status,
-        isGenerating,
+        isLoading,
+        isStreaming,
       })
 
       if (!message.text.trim() && message.files.length === 0) {
@@ -89,12 +89,11 @@ export function ChatInput({
         return
       }
 
-      sendMessage({
-        text: message.text.trim(),
-        files: message.files.length > 0 ? message.files : undefined,
-      })
+      // sendMessage expects a string, not an object
+      // TODO: Handle file attachments separately when needed
+      sendMessage(message.text.trim())
     },
-    [sendMessage, status, isGenerating],
+    [sendMessage, isLoading, isStreaming],
   )
 
   // Default placeholder based on message count
@@ -151,13 +150,7 @@ export function ChatInput({
   )
 
   return (
-    <div
-      className={cn(
-        'border-t border-border',
-        compact ? 'p-2 sm:p-3' : 'p-3 sm:p-4',
-        className,
-      )}
-    >
+    <div className={cn(compact ? 'p-2 sm:p-3' : 'p-3 sm:p-4', className)}>
       <PromptInput
         onSubmit={handleSubmit}
         className={compact ? '' : 'max-w-2xl mx-auto'}
@@ -170,7 +163,7 @@ export function ChatInput({
 
         <PromptInputTextarea
           placeholder={placeholder || defaultPlaceholder}
-          disabled={isGenerating}
+          disabled={isStreaming}
           className="text-sm sm:text-base"
         />
 
@@ -193,7 +186,10 @@ export function ChatInput({
             )}
           </PromptInputTools>
 
-          <PromptInputSubmit status={status} disabled={isGenerating} />
+          <PromptInputSubmit
+            status={isLoading ? 'streaming' : 'ready'}
+            disabled={isStreaming}
+          />
         </PromptInputFooter>
       </PromptInput>
 

@@ -14,8 +14,6 @@
     "e2e:ui": "bunx playwright test --ui"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^3.0.10",
-    "@ai-sdk/react": "^3.0.37",
     "@base-ui/react": "^1.0.0",
     "@fontsource-variable/raleway": "^5.2.8",
     "@radix-ui/react-use-controllable-state": "^1.2.2",
@@ -23,6 +21,10 @@
     "@supabase/supabase-js": "^2.90.1",
     "@tabler/icons-react": "^3.36.1",
     "@tailwindcss/vite": "^4.0.6",
+    "@tanstack/ai": "^0.2.2",
+    "@tanstack/ai-client": "^0.2.2",
+    "@tanstack/ai-openai": "^0.2.1",
+    "@tanstack/ai-react": "^0.2.2",
     "@tanstack/react-devtools": "^0.7.0",
     "@tanstack/react-router": "^1.132.0",
     "@tanstack/react-router-devtools": "^1.132.0",
@@ -33,7 +35,6 @@
     "@univerjs/preset-sheets-core": "^0.15.1",
     "@univerjs/presets": "^0.15.1",
     "@xyflow/react": "^12.10.0",
-    "ai": "^6.0.37",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

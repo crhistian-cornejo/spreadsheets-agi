@@ -314,116 +314,196 @@ export const UniverSheet = forwardRef<UniverSheetHandle, UniverSheetProps>(
 
     useEffect(() => {
       if (!containerRef.current || initializedRef.current) return
-      initializedRef.current = true
 
-      const { univer, univerAPI } = createUniver({
-        locale: LocaleType.EN_US,
-        locales: {
-          [LocaleType.EN_US]: mergeLocales(UniverPresetSheetsCoreEnUS),
-        },
-        darkMode,
-        presets: [
-          UniverSheetsCorePreset({
-            container: containerRef.current,
-          }),
-        ],
-      })
+      let cleanupFn: (() => void) | null = null
+      let resizeObserver: ResizeObserver | null = null
+      let timeoutId: ReturnType<typeof setTimeout> | null = null
 
-      // Store the API reference
-      univerAPIRef.current = univerAPI as unknown as UniverAPI
-      univerInstanceRef.current =
-        univer as unknown as typeof univerInstanceRef.current
-
-      // Create a new workbook with initial data or empty
-      if (initialData) {
-        univerAPI.createWorkbook(initialData)
-      } else {
-        univerAPI.createWorkbook({})
+      // Check if container has valid dimensions
+      const checkContainerDimensions = () => {
+        if (!containerRef.current) return false
+        const rect = containerRef.current.getBoundingClientRect()
+        // Ensure container has a minimum width (at least 100px)
+        return rect.width > 0 && rect.height > 0
       }
 
-      setIsLoading(false)
+      // Initialize Univer
+      const initializeUniver = () => {
+        if (initializedRef.current || !containerRef.current) return
+        initializedRef.current = true
 
-      // Notify parent that API is ready
-      if (onReady) {
-        onReady(handle)
-      }
-
-      // Set up command listener for detecting changes (debounced)
-      let changeTimeout: ReturnType<typeof setTimeout> | null = null
-      const DEBOUNCE_MS = 1000 // 1 second debounce
-
-      // Commands that indicate data changes
-      const DATA_CHANGE_COMMANDS = [
-        'sheet.command.set-range-values',
-        'sheet.mutation.set-range-values',
-        'sheet.command.remove-row',
-        'sheet.command.remove-col',
-        'sheet.command.insert-row',
-        'sheet.command.insert-col',
-        'sheet.command.set-worksheet-col-width',
-        'sheet.command.set-worksheet-row-height',
-        'sheet.command.set-worksheet-name',
-        'sheet.command.delete-range-move-left',
-        'sheet.command.delete-range-move-up',
-        'sheet.command.insert-range-move-right',
-        'sheet.command.insert-range-move-down',
-        'sheet.command.set-cell-edit',
-        'doc.command.insert-text',
-      ]
-
-      try {
-        const injector = univer.__getInjector()
-        const commandService = injector.get(ICommandService) as {
-          onCommandExecuted: (callback: (info: { id: string }) => void) => {
-            dispose: () => void
-          }
+        // Double-check dimensions before initializing
+        const rect = containerRef.current.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) {
+          console.warn(
+            'UniverSheet: Container has invalid dimensions, cannot initialize',
+            { width: rect.width, height: rect.height },
+          )
+          initializedRef.current = false
+          return
         }
 
-        const disposable = commandService.onCommandExecuted((commandInfo) => {
-          // Check if this is a data-changing command
-          const isDataChange = DATA_CHANGE_COMMANDS.some(
-            (cmd) =>
-              commandInfo.id.includes(cmd) ||
-              commandInfo.id.includes('set-range') ||
-              commandInfo.id.includes('mutation'),
-          )
+        const { univer, univerAPI } = createUniver({
+          locale: LocaleType.EN_US,
+          locales: {
+            [LocaleType.EN_US]: mergeLocales(UniverPresetSheetsCoreEnUS),
+          },
+          darkMode,
+          presets: [
+            UniverSheetsCorePreset({
+              container: containerRef.current,
+            }),
+          ],
+        })
 
-          if (isDataChange && onChangeRef.current) {
-            // Clear existing timeout
+        // Store the API reference
+        univerAPIRef.current = univerAPI as unknown as UniverAPI
+        univerInstanceRef.current =
+          univer as unknown as typeof univerInstanceRef.current
+
+        // Create a new workbook with initial data or empty
+        if (initialData) {
+          univerAPI.createWorkbook(initialData)
+        } else {
+          univerAPI.createWorkbook({})
+        }
+
+        setIsLoading(false)
+
+        // Notify parent that API is ready
+        if (onReady) {
+          onReady(handle)
+        }
+
+        // Set up command listener for detecting changes (debounced)
+        let changeTimeout: ReturnType<typeof setTimeout> | null = null
+        const DEBOUNCE_MS = 1000 // 1 second debounce
+
+        // Commands that indicate data changes
+        const DATA_CHANGE_COMMANDS = [
+          'sheet.command.set-range-values',
+          'sheet.mutation.set-range-values',
+          'sheet.command.remove-row',
+          'sheet.command.remove-col',
+          'sheet.command.insert-row',
+          'sheet.command.insert-col',
+          'sheet.command.set-worksheet-col-width',
+          'sheet.command.set-worksheet-row-height',
+          'sheet.command.set-worksheet-name',
+          'sheet.command.delete-range-move-left',
+          'sheet.command.delete-range-move-up',
+          'sheet.command.insert-range-move-right',
+          'sheet.command.insert-range-move-down',
+          'sheet.command.set-cell-edit',
+          'doc.command.insert-text',
+        ]
+
+        try {
+          const injector = univer.__getInjector()
+          const commandService = injector.get(ICommandService) as {
+            onCommandExecuted: (callback: (info: { id: string }) => void) => {
+              dispose: () => void
+            }
+          }
+
+          const disposable = commandService.onCommandExecuted((commandInfo) => {
+            // Check if this is a data-changing command
+            const isDataChange = DATA_CHANGE_COMMANDS.some(
+              (cmd) =>
+                commandInfo.id.includes(cmd) ||
+                commandInfo.id.includes('set-range') ||
+                commandInfo.id.includes('mutation'),
+            )
+
+            if (isDataChange && onChangeRef.current) {
+              // Clear existing timeout
+              if (changeTimeout) {
+                clearTimeout(changeTimeout)
+              }
+
+              // Set up debounced save
+              changeTimeout = setTimeout(() => {
+                const api = univerAPIRef.current
+                if (api) {
+                  const workbook = api.getActiveWorkbook()
+                  if (workbook && onChangeRef.current) {
+                    const data = workbook.save()
+                    onChangeRef.current(data)
+                  }
+                }
+              }, DEBOUNCE_MS)
+            }
+          })
+
+          // Store cleanup function
+          cleanupFn = () => {
             if (changeTimeout) {
               clearTimeout(changeTimeout)
             }
+            disposable.dispose()
+            univerAPI.dispose()
+            initializedRef.current = false
+          }
+        } catch (error) {
+          console.warn('Could not set up command listener:', error)
+          // Cleanup on unmount without command listener
+          cleanupFn = () => {
+            univerAPI.dispose()
+            initializedRef.current = false
+          }
+        }
+      }
 
-            // Set up debounced save
-            changeTimeout = setTimeout(() => {
-              const api = univerAPIRef.current
-              if (api) {
-                const workbook = api.getActiveWorkbook()
-                if (workbook && onChangeRef.current) {
-                  const data = workbook.save()
-                  onChangeRef.current(data)
-                }
+      // If container doesn't have dimensions yet, wait for it
+      if (!checkContainerDimensions()) {
+        // Use ResizeObserver to wait for container to have dimensions
+        resizeObserver = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            const { width, height } = entry.contentRect
+            if (width > 0 && height > 0 && !initializedRef.current) {
+              if (resizeObserver) {
+                resizeObserver.disconnect()
+                resizeObserver = null
               }
-            }, DEBOUNCE_MS)
+              if (timeoutId) {
+                clearTimeout(timeoutId)
+                timeoutId = null
+              }
+              initializeUniver()
+            }
           }
         })
 
-        // Cleanup on unmount
-        return () => {
-          if (changeTimeout) {
-            clearTimeout(changeTimeout)
+        resizeObserver.observe(containerRef.current)
+
+        // Fallback: try again after a short delay in case ResizeObserver doesn't fire
+        timeoutId = setTimeout(() => {
+          if (!initializedRef.current && checkContainerDimensions()) {
+            if (resizeObserver) {
+              resizeObserver.disconnect()
+              resizeObserver = null
+            }
+            timeoutId = null
+            initializeUniver()
           }
-          disposable.dispose()
-          univerAPI.dispose()
-          initializedRef.current = false
+        }, 100)
+      } else {
+        // Container has dimensions, initialize immediately
+        initializeUniver()
+      }
+
+      // Return cleanup function
+      return () => {
+        if (resizeObserver) {
+          resizeObserver.disconnect()
         }
-      } catch (error) {
-        console.warn('Could not set up command listener:', error)
-        // Cleanup on unmount without command listener
-        return () => {
-          univerAPI.dispose()
-          initializedRef.current = false
+        if (timeoutId) {
+          clearTimeout(timeoutId)
         }
+        if (cleanupFn) {
+          cleanupFn()
+        }
+        initializedRef.current = false
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [darkMode])

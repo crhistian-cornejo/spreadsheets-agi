@@ -35,7 +35,20 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import type { ChatStatus, FileUIPart } from 'ai'
+
+// Local types (to avoid dependency on Vercel AI SDK)
+export type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
+export type FileUIPart = {
+  type: 'file'
+  url: string
+  mediaType: string
+  filename?: string
+  // Also support legacy format
+  data?: string
+  mimeType?: string
+  name?: string
+}
+
 import {
   CornerDownLeftIcon,
   ImageIcon,
@@ -104,7 +117,7 @@ const ProviderAttachmentsContext = createContext<AttachmentsContext | null>(
   null,
 )
 
-export const usePromptInputController = () => {
+export function usePromptInputController() {
   const ctx = useContext(PromptInputControllerContext)
   if (!ctx) {
     throw new Error(
@@ -118,7 +131,7 @@ export const usePromptInputController = () => {
 const useOptionalPromptInputController = () =>
   useContext(PromptInputControllerContext)
 
-export const useProviderAttachments = () => {
+export function useProviderAttachments() {
   const ctx = useContext(ProviderAttachmentsContext)
   if (!ctx) {
     throw new Error(
@@ -261,7 +274,7 @@ export function PromptInputProvider({
 
 const LocalAttachmentsContext = createContext<AttachmentsContext | null>(null)
 
-export const usePromptInputAttachments = () => {
+export function usePromptInputAttachments() {
   // Dual-mode: prefer provider if present, otherwise use local
   const provider = useOptionalProviderAttachments()
   const local = useContext(LocalAttachmentsContext)

@@ -1,10 +1,10 @@
 'use client'
 
 import * as React from 'react'
-import type { UIMessage } from '@ai-sdk/react'
 import { IconCheck } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { Logo } from '@/components/ui/Logo'
+import type { UIMessage } from '@tanstack/ai-react'
 
 // AI Elements components
 import {
@@ -14,11 +14,9 @@ import {
   ConversationEmptyState,
 } from '@/components/ai-elements/conversation'
 import {
-  Message,
+  Message as MessageComponent,
   MessageContent,
   MessageResponse,
-  MessageAttachment,
-  MessageAttachments,
 } from '@/components/ai-elements/message'
 import {
   Tool,
@@ -53,6 +51,23 @@ function getToolDisplayName(toolName: string): string {
 }
 
 // ============================================================================
+// Helper to extract text from UIMessage parts
+// ============================================================================
+
+function getTextContent(message: UIMessage): string {
+  if (!message.parts || message.parts.length === 0) {
+    return ''
+  }
+  
+  return message.parts
+    .filter((part): part is { type: 'text'; content: string } => {
+      return part.type === 'text' && typeof (part as { content?: string }).content === 'string'
+    })
+    .map((part) => part.content)
+    .join('')
+}
+
+// ============================================================================
 // Suggestions Config
 // ============================================================================
 
@@ -83,138 +98,149 @@ export function ChatConversation({
   emptyStateContent,
   compact = false,
 }: ChatConversationProps) {
-  const { messages, isStreaming, isGenerating, sendText, status, error } =
+  const { messages, isLoading, isStreaming, sendMessage, error } =
     useChatContext()
 
   // Debug logging
   React.useEffect(() => {
     console.log('[ChatConversation] Render state:', {
       messagesCount: messages.length,
+      isLoading,
       isStreaming,
-      isGenerating,
-      status,
       hasError: !!error,
+      messages: messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        partsCount: m.parts.length,
+        parts: m.parts.map((p) => ({
+          type: p.type,
+          hasContent: p.type === 'text' ? !!(p as { content: string }).content : false,
+        })),
+      })),
     })
-  }, [messages.length, isStreaming, isGenerating, status, error])
+  }, [messages, isLoading, isStreaming, error])
 
-  // Render message parts
-  const renderMessageParts = React.useCallback(
-    (message: UIMessage) => {
-      const parts = (message.parts as any[]) || []
+  // Render message content using TanStack AI UIMessage parts
+  const renderMessageContent = React.useCallback(
+    (message: UIMessage, isCurrentlyStreaming: boolean) => {
+      const textContent = getTextContent(message)
+      
+      // Debug: log message content extraction
+      if (textContent) {
+        console.log('[ChatConversation] Rendering message with text:', {
+          messageId: message.id,
+          role: message.role,
+          textLength: textContent.length,
+          textPreview: textContent.substring(0, 50),
+        })
+      } else {
+        console.log('[ChatConversation] Message has no text content:', {
+          messageId: message.id,
+          role: message.role,
+          parts: message.parts.map((p) => p.type),
+        })
+      }
 
-      return parts.map((part, i) => {
-        const key = `${message.id}-${part.type}-${i}`
+      // Filter tool call parts using type narrowing
+      const toolCallParts = message.parts.filter(
+        (part) => part.type === 'tool-call',
+      )
 
-        switch (part.type) {
-          case 'text':
+      return (
+        <>
+          {/* Main text content */}
+          {textContent && (
+            <MessageResponse
+              mode={isCurrentlyStreaming ? 'streaming' : 'static'}
+            >
+              {textContent}
+            </MessageResponse>
+          )}
+
+          {/* Tool calls */}
+          {toolCallParts.map((toolCall) => {
+            if (toolCall.type !== 'tool-call') return null
+
+            // Access properties safely
+            const toolCallAny = toolCall as {
+              id: string
+              name: string
+              arguments: string
+              state?: string
+              output?: unknown
+            }
+
+            const args =
+              typeof toolCallAny.arguments === 'string'
+                ? JSON.parse(toolCallAny.arguments)
+                : toolCallAny.arguments
+            const state = toolCallAny.state || 'pending'
+            const hasOutput = toolCallAny.output !== undefined
+
             return (
-              <MessageResponse
-                key={key}
-                mode={isStreaming ? 'streaming' : 'static'}
+              <Tool
+                key={toolCallAny.id}
+                defaultOpen={state !== 'output-available'}
               >
-                {part.text}
-              </MessageResponse>
+                <ToolHeader
+                  title={getToolDisplayName(toolCallAny.name)}
+                  type={`tool-${toolCallAny.name}`}
+                  state={
+                    state === 'output-available' || hasOutput
+                      ? 'output-available'
+                      : state === 'output-error'
+                        ? 'output-error'
+                        : 'input-streaming'
+                  }
+                />
+                <ToolContent>
+                  <ToolInput input={args} />
+                  {hasOutput && (
+                    <ToolOutput
+                      output={toolCallAny.output}
+                      errorText={undefined}
+                    />
+                  )}
+                </ToolContent>
+              </Tool>
             )
+          })}
 
-          case 'file':
-            return <MessageAttachment key={key} data={part} />
-
-          default:
-            // Handle tool invocations (new format: tool-<toolName>)
-            if (part.type?.startsWith('tool-')) {
-              const toolInvocation = part as any
-              const toolName = part.type.replace('tool-', '')
-
-              return (
-                <Tool
-                  key={key}
-                  defaultOpen={toolInvocation.state !== 'output-available'}
-                >
-                  <ToolHeader
-                    title={getToolDisplayName(toolName)}
-                    type={part.type}
-                    state={toolInvocation.state}
-                  />
-                  <ToolContent>
-                    <ToolInput input={toolInvocation.input} />
-                    {(toolInvocation.state === 'output-available' ||
-                      toolInvocation.state === 'output-error') && (
-                      <ToolOutput
-                        output={toolInvocation.output}
-                        errorText={toolInvocation.errorText}
-                      />
-                    )}
-                  </ToolContent>
-                </Tool>
-              )
-            }
-
-            // Legacy tool-invocation format
-            if (part.type === 'tool-invocation') {
-              const { toolInvocation } = part as any
-
-              if (toolInvocation.state === 'call') {
-                return (
-                  <div
-                    key={key}
-                    className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border border-border/50"
-                  >
-                    <Loader size={14} />
-                    <span className="text-sm text-muted-foreground">
-                      Ejecutando {getToolDisplayName(toolInvocation.toolName)}
-                      ...
-                    </span>
-                  </div>
-                )
-              }
-
-              if (toolInvocation.state === 'result') {
-                const output = toolInvocation.result as {
-                  success?: boolean
-                  title?: string
-                  type?: string
-                }
-
-                // Show success indicator for completed tools
-                if (output.success && output.title) {
-                  return (
-                    <div
-                      key={key}
-                      className="flex items-center gap-3 w-full p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20"
-                    >
-                      <div className="size-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                        <IconCheck className="size-4 text-emerald-500" />
-                      </div>
-                      <div className="text-left">
-                        <p className="font-medium text-sm text-emerald-600 dark:text-emerald-400">
-                          {output.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Operación completada
-                        </p>
-                      </div>
-                    </div>
-                  )
-                }
-              }
-            }
-
-            return null
-        }
-      })
+          {/* Success indicator for completed tools */}
+          {toolCallParts.some((tc) => {
+            const tcAny = tc as { output?: unknown }
+            return tcAny.output !== undefined
+          }) && (
+            <div className="flex items-center gap-3 w-full p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 mt-2">
+              <div className="size-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                <IconCheck className="size-4 text-emerald-500" />
+              </div>
+              <div className="text-left">
+                <p className="font-medium text-sm text-emerald-600 dark:text-emerald-400">
+                  Operación completada
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Los cambios se aplicaron a la hoja de cálculo
+                </p>
+              </div>
+            </div>
+          )}
+        </>
+      )
     },
-    [isStreaming],
+    [],
   )
 
   return (
     <Conversation className={cn('flex-1', className)}>
       <ConversationContent className={cn(compact ? 'p-3' : 'p-3 sm:p-4')}>
-        {messages.length === 0 ? (
+        {messages.length === 0 && !isLoading ? (
           emptyStateContent || (
-            <ConversationEmptyState className="h-full px-2 sm:px-0">
+            <ConversationEmptyState
+              className={cn('h-full w-full', !compact && 'max-w-2xl mx-auto')}
+            >
               {/* Logo */}
               <div className="relative mb-4 sm:mb-6">
-                <div className="absolute inset-0 bg-primary/10 rounded-full scale-150" />
                 <div
                   className={cn(
                     'relative rounded-2xl bg-card border ring-1 ring-border/50 flex items-center justify-center',
@@ -253,63 +279,63 @@ export function ChatConversation({
 
               {/* Suggestions - responsive layout */}
               <Suggestions
-                className={cn(
-                  compact ? 'max-w-full' : 'max-w-full sm:max-w-2xl',
-                  'px-2 sm:px-0',
-                )}
+                className={cn('w-full', compact ? '' : 'max-w-2xl mx-auto')}
+                layout="wrap"
               >
                 {suggestions.map((suggestion) => (
                   <Suggestion
                     key={suggestion}
                     suggestion={suggestion}
-                    onClick={(s) => sendText(s)}
+                    onClick={(s) => sendMessage(s)}
                   />
                 ))}
               </Suggestions>
             </ConversationEmptyState>
           )
         ) : (
-          <>
-            {messages.map((message) => (
-              <Message key={message.id} from={message.role}>
-                <MessageContent>
-                  {/* Attachments for user messages */}
-                  {message.role === 'user' && (
-                    <MessageAttachments>
-                      {((message.parts as any[]) || [])
-                        .filter((p) => p.type === 'file')
-                        .map((file, i) => (
-                          <MessageAttachment
-                            key={`${message.id}-file-${i}`}
-                            data={file}
-                          />
-                        ))}
-                    </MessageAttachments>
-                  )}
+          <div className={cn('w-full', !compact && 'max-w-2xl mx-auto')}>
+            {messages.map((message, index) => {
+              const isLastAssistantMessage =
+                message.role === 'assistant' && index === messages.length - 1
 
-                  {/* Assistant header */}
-                  {message.role === 'assistant' && (
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="size-5 sm:size-6 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Logo className="size-3 sm:size-3.5 text-primary" />
+              return (
+                <MessageComponent key={message.id} from={message.role}>
+                  <MessageContent>
+                    {/* Assistant header */}
+                    {message.role === 'assistant' && (
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="size-5 sm:size-6 rounded-full bg-primary/10 flex items-center justify-center">
+                          <Logo className="size-3 sm:size-3.5 text-primary" />
+                        </div>
+                        <span className="text-[10px] sm:text-xs font-medium text-muted-foreground">
+                          S-AGI
+                        </span>
                       </div>
-                      <span className="text-[10px] sm:text-xs font-medium text-muted-foreground">
-                        S-AGI
-                      </span>
+                    )}
+
+                    {/* Message content */}
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                      {message.role === 'user' ? (
+                        // For user messages, show text directly from parts
+                        <div className="text-foreground">
+                          {getTextContent(message) || '(Sin contenido)'}
+                        </div>
+                      ) : (
+                        // For assistant messages, use the full render function
+                        renderMessageContent(
+                          message,
+                          isLastAssistantMessage && isStreaming,
+                        )
+                      )}
                     </div>
-                  )}
+                  </MessageContent>
+                </MessageComponent>
+              )
+            })}
 
-                  {/* Message content */}
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
-                    {renderMessageParts(message)}
-                  </div>
-                </MessageContent>
-              </Message>
-            ))}
-
-            {/* Loading state */}
-            {isGenerating && !isStreaming && (
-              <Message from="assistant">
+            {/* Loading state when no messages or streaming */}
+            {isLoading && messages[messages.length - 1]?.role === 'user' && (
+              <MessageComponent from="assistant">
                 <MessageContent>
                   <div className="flex items-center gap-2 mb-3">
                     <div className="size-5 sm:size-6 rounded-full bg-primary/10 flex items-center justify-center">
@@ -321,9 +347,9 @@ export function ChatConversation({
                   </div>
                   <Loader className="text-muted-foreground" />
                 </MessageContent>
-              </Message>
+              </MessageComponent>
             )}
-          </>
+          </div>
         )}
       </ConversationContent>
       <ConversationScrollButton />

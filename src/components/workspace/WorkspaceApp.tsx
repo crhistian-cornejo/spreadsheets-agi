@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
 import { useWorkbooks } from '@/lib/stores/workbook-context'
-import { useChatHistory } from '@/hooks/useChatHistory'
+import { useChatHistory } from '@/hooks/use-chat-history'
 import {
   CreateFileDialog,
   OpenFileDialog,
@@ -26,7 +26,12 @@ import {
   SettingsDialog,
 } from '@/components/dialogs'
 
-export function WorkspaceApp() {
+interface WorkspaceAppProps {
+  /** Initial chat ID from URL params */
+  initialChatId?: string
+}
+
+export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
   const navigate = useNavigate()
   const { user, signOut, isLoading: authLoading } = useAuth()
   const isE2E = import.meta.env.VITE_E2E === 'true'
@@ -34,9 +39,13 @@ export function WorkspaceApp() {
   const [currentApp, setCurrentApp] = React.useState<
     'sheets' | 'docs' | 'slides'
   >('sheets')
-  const [mode, setMode] = React.useState<'native' | 'ai-chat'>('native')
+  // If we have an initialChatId, start in ai-chat mode
+  const [mode, setMode] = React.useState<'native' | 'ai-chat'>(
+    initialChatId ? 'ai-chat' : 'native',
+  )
   const [darkMode, setDarkMode] = React.useState(false)
   const [isAIChatPanelOpen, setIsAIChatPanelOpen] = React.useState(false)
+  const [isCreatingChat, setIsCreatingChat] = React.useState(false)
 
   // Dialog states
   const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false)
@@ -49,7 +58,8 @@ export function WorkspaceApp() {
     if (!authLoading && !user && !isE2E) {
       navigate({ to: '/login' })
     }
-  }, [user, authLoading, navigate, isE2E])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, navigate])
 
   // Workbook store
   const {
@@ -75,41 +85,131 @@ export function WorkspaceApp() {
   const {
     chats,
     currentChat,
-    messages: chatMessages,
-    isLoading: _chatLoading, // TODO: Use for loading indicator
+    uiMessages: chatUIMessages,
+    artifacts: chatArtifacts,
+    isLoading: chatLoading,
     createChat,
     loadChat,
     deleteChat,
-    sendMessage: persistMessage,
+    persistMessage,
   } = useChatHistory()
 
-  // Convert DB messages to UIMessage format for AI SDK
-  // IMPORTANT: Return empty array instead of undefined to avoid SDK initialization issues
+  // Track which chatId we're currently loading to prevent race conditions
+  const [loadingChatId, setLoadingChatId] = React.useState<string | null>(null)
+
+  // Check if chat data is ready (currentChat matches what we expect and not loading)
+  const isChatDataReady = React.useMemo(() => {
+    // If we're not in ai-chat mode, we're ready
+    if (mode !== 'ai-chat') return true
+    // If we're creating a new chat, wait for it
+    if (isCreatingChat) return false
+    // If we're loading a specific chat, wait for it to match currentChat
+    if (loadingChatId) {
+      return currentChat?.id === loadingChatId && !chatLoading
+    }
+    // If we have an initialChatId from URL, wait for it to load
+    if (initialChatId && currentChat?.id !== initialChatId) return false
+    // Otherwise we're ready
+    return !chatLoading
+  }, [
+    mode,
+    isCreatingChat,
+    loadingChatId,
+    currentChat?.id,
+    chatLoading,
+    initialChatId,
+  ])
+
+  // Load initial chat from URL param if provided
+  React.useEffect(() => {
+    if (initialChatId && user && !currentChat) {
+      console.log(
+        '[WorkspaceApp] Loading initial chat from URL:',
+        initialChatId,
+      )
+      loadChat(initialChatId)
+    }
+  }, [initialChatId, user, currentChat, loadChat])
+
+  // Update URL when chat changes (only in ai-chat mode)
+  React.useEffect(() => {
+    if (mode !== 'ai-chat') return
+
+    if (currentChat?.id) {
+      // Only update if URL doesn't already have this chatId
+      const currentPath = window.location.pathname
+      const expectedPath = `/workspace/chat/${currentChat.id}`
+      if (currentPath !== expectedPath) {
+        navigate({
+          to: '/workspace/chat/$chatId',
+          params: { chatId: currentChat.id },
+          replace: true,
+        })
+      }
+    }
+  }, [currentChat?.id, mode, navigate])
+
+  // Use UIMessages from chat history (already in TanStack AI format)
+  // Cast to UIMessage format - the parts are compatible
   const initialChatMessages = React.useMemo(() => {
-    if (!chatMessages || chatMessages.length === 0) return [] // Return empty array instead of undefined
+    if (!chatUIMessages || chatUIMessages.length === 0) return []
+    // Cast to UIMessage - StoredUIMessagePart is structurally compatible
+    return chatUIMessages as unknown as import('@tanstack/ai-react').UIMessage[]
+  }, [chatUIMessages])
 
-    return chatMessages.map((msg) => ({
-      id: msg.id,
-      role: msg.role as 'user' | 'assistant',
-      parts: [{ type: 'text' as const, text: msg.content }],
-      createdAt: new Date(msg.created_at),
-    }))
-  }, [chatMessages])
+  // Initial artifacts from chat history
+  const initialArtifacts = React.useMemo(() => {
+    if (!chatArtifacts || chatArtifacts.length === 0) return undefined
+    return chatArtifacts
+  }, [chatArtifacts])
 
-  // Handle persisting chat messages
-  const handleMessageSent = React.useCallback(
-    async (role: 'user' | 'assistant', content: string) => {
+  // Auto-create chat when entering AI chat mode without an active chat
+  // This ensures chatId is always available before user sends first message
+  // Skip if we have an initialChatId (we're loading from URL)
+  React.useEffect(() => {
+    if (
+      mode === 'ai-chat' &&
+      !currentChat &&
+      !isCreatingChat &&
+      user &&
+      !initialChatId
+    ) {
+      setIsCreatingChat(true)
+      createChat()
+        .then((chat) => {
+          if (chat) {
+            console.log('[WorkspaceApp] Auto-created chat:', chat.id)
+          }
+        })
+        .catch((err) => {
+          console.error('[WorkspaceApp] Failed to auto-create chat:', err)
+        })
+        .finally(() => {
+          setIsCreatingChat(false)
+        })
+    }
+  }, [mode, currentChat, isCreatingChat, user, createChat, initialChatId])
+
+  // Handle persisting chat messages (with full parts and artifacts)
+  const handleMessagePersist = React.useCallback(
+    async (message: {
+      id: string
+      role: 'user' | 'assistant'
+      parts: import('@/lib/supabase').StoredUIMessagePart[]
+      artifacts?: import('@/hooks/use-spreadsheet-chat').StoredArtifact[]
+    }) => {
       if (!currentChat) {
-        // Create a new chat if there isn't one, then persist the message
-        const newChat = await createChat('Nueva conversación')
+        // This shouldn't happen with auto-create, but handle gracefully
+        console.warn('[WorkspaceApp] No currentChat, creating one on-the-fly')
+        const newChat = await createChat()
         if (newChat) {
           // Persist using the newly created chat ID
-          await persistMessage(content, role, newChat.id)
+          await persistMessage(message, newChat.id)
         }
         return
       }
 
-      await persistMessage(content, role)
+      await persistMessage(message)
     },
     [currentChat, createChat, persistMessage],
   )
@@ -216,34 +316,57 @@ export function WorkspaceApp() {
 
   // Handle creating a new chat
   const handleCreateChat = async () => {
-    const chat = await createChat('Nueva conversación')
+    // Create with no title - it will be set to 'Nueva conversación' initially
+    // and auto-updated when first message is sent
+    const chat = await createChat()
     if (chat) {
+      // Navigate to the new chat URL
+      navigate({ to: '/workspace/chat/$chatId', params: { chatId: chat.id } })
       toast.info('Nueva conversación', {
-        description: 'Se ha creado una nueva conversación',
+        description: 'Escribe tu primer mensaje para comenzar',
       })
     }
   }
 
   // Handle loading a chat
   const handleLoadChat = async (id: string) => {
-    await loadChat(id)
-    const chat = chats.find((c) => c.id === id)
-    if (chat) {
-      toast.info('Conversación cargada', {
-        description: `"${chat.title}"`,
-      })
+    // Set loading state BEFORE starting the load
+    setLoadingChatId(id)
+    try {
+      await loadChat(id)
+      // Navigate to chat URL after data is loaded
+      navigate({ to: '/workspace/chat/$chatId', params: { chatId: id } })
+      const chat = chats.find((c) => c.id === id)
+      if (chat) {
+        toast.info('Conversación cargada', {
+          description: `"${chat.title}"`,
+        })
+      }
+    } finally {
+      // Clear loading state
+      setLoadingChatId(null)
     }
   }
 
   // Handle deleting a chat
   const handleDeleteChat = async (id: string) => {
     const chat = chats.find((c) => c.id === id)
+    const wasCurrentChat = currentChat?.id === id
+
     await deleteChat(id)
     toast.success('Conversación eliminada', {
       description: chat
         ? `"${chat.title}" ha sido eliminada`
         : 'Conversación eliminada',
     })
+
+    // If we deleted the current chat, create a new one after a brief delay
+    // to give user feedback about the deletion
+    if (wasCurrentChat && mode === 'ai-chat') {
+      setTimeout(() => {
+        createChat()
+      }, 100)
+    }
   }
 
   // Handle exporting a workbook
@@ -266,6 +389,25 @@ export function WorkspaceApp() {
       description: `"${workbook.name}.json" se ha descargado`,
     })
   }
+
+  // Handle mode change with URL updates
+  const handleModeChange = React.useCallback(
+    (newMode: 'native' | 'ai-chat') => {
+      setMode(newMode)
+      if (newMode === 'native') {
+        // When switching to native, go to base workspace URL
+        navigate({ to: '/workspace' })
+      } else if (newMode === 'ai-chat' && currentChat?.id) {
+        // When switching to ai-chat with existing chat, use chat URL
+        navigate({
+          to: '/workspace/chat/$chatId',
+          params: { chatId: currentChat.id },
+        })
+      }
+      // If switching to ai-chat without a chat, the auto-create effect will handle it
+    },
+    [navigate, currentChat?.id],
+  )
 
   // Handle dark mode toggle
   const handleDarkModeToggle = () => {
@@ -367,10 +509,21 @@ export function WorkspaceApp() {
                   Guardando...
                 </span>
               )}
+              {/* Chat loading indicator */}
+              {isCreatingChat && mode === 'ai-chat' && (
+                <span className="text-xs text-muted-foreground animate-pulse">
+                  Creando chat...
+                </span>
+              )}
+              {chatLoading && !isCreatingChat && mode === 'ai-chat' && (
+                <span className="text-xs text-muted-foreground animate-pulse">
+                  Cargando chat...
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
-              <ModeToggle mode={mode} onModeChange={setMode} />
+              <ModeToggle mode={mode} onModeChange={handleModeChange} />
 
               {mode === 'native' && (
                 <>
@@ -418,15 +571,31 @@ export function WorkspaceApp() {
                 // Chat persistence props
                 chatId={currentChat?.id}
                 initialMessages={initialChatMessages}
-                onMessageSent={handleMessageSent}
+                initialArtifacts={initialArtifacts}
+                onMessagePersist={handleMessagePersist}
+                // App type props
+                currentApp={currentApp}
+                onAppChange={setCurrentApp}
               />
+            ) : !isChatDataReady ? (
+              // Show loading state while chat data is being fetched
+              <div className="flex-1 flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="size-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                  <p className="text-sm text-muted-foreground">
+                    Cargando conversación...
+                  </p>
+                </div>
+              </div>
             ) : (
               <AIChatMode
+                key={`${currentChat?.id || 'new'}-${initialChatMessages.length}`}
                 darkMode={darkMode}
                 onSwitchToNative={handleSwitchToNative}
                 chatId={currentChat?.id}
                 initialMessages={initialChatMessages}
-                onMessageSent={handleMessageSent}
+                initialArtifacts={initialArtifacts}
+                onMessagePersist={handleMessagePersist}
               />
             )}
           </main>

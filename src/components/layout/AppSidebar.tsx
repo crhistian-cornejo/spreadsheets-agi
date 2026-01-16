@@ -34,11 +34,16 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from '@/components/ui/sidebar'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 // Format relative time helper
 function formatRelativeTime(date: Date | string): string {
@@ -131,6 +136,7 @@ export function AppSidebar({
   onDeleteChat,
 }: AppSidebarProps) {
   const currentAppData = apps.find((app) => app.id === currentApp)
+  const { state: sidebarState, isMobile } = useSidebar()
 
   return (
     <Sidebar collapsible="icon">
@@ -138,22 +144,33 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>
-              <DropdownMenuTrigger className="w-full">
-                <div className="flex w-full items-center gap-2 overflow-hidden rounded-lg p-2 text-left outline-none ring-sidebar-ring transition-all hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-1! h-12 text-sm cursor-pointer bg-muted/30 border border-transparent hover:border-border/50 transition-colors">
-                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0 shadow-sm">
-                    <Logo className="size-5" />
-                  </div>
-                  <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
-                    <span className="truncate font-semibold text-foreground">
-                      S-AGI
-                    </span>
-                    <span className="truncate text-[10px] text-muted-foreground/80">
-                      Spreadsheets Plus
-                    </span>
-                  </div>
-                  <IconChevronsDown className="ml-auto size-4 group-data-[collapsible=icon]:hidden text-muted-foreground/60" />
-                </div>
-              </DropdownMenuTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger className="w-full">
+                    <div className="flex w-full items-center gap-2 overflow-hidden rounded-lg p-2 text-left outline-none ring-sidebar-ring transition-all hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-1! h-12 text-sm cursor-pointer bg-muted/30 border border-transparent hover:border-border/50 transition-colors">
+                      <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0 shadow-sm">
+                        <Logo className="size-5" />
+                      </div>
+                      <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
+                        <span className="truncate font-semibold text-foreground">
+                          S-AGI
+                        </span>
+                        <span className="truncate text-[10px] text-muted-foreground/80">
+                          Spreadsheets Plus
+                        </span>
+                      </div>
+                      <IconChevronsDown className="ml-auto size-4 group-data-[collapsible=icon]:hidden text-muted-foreground/60" />
+                    </div>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="right"
+                  align="center"
+                  hidden={sidebarState !== 'collapsed' || isMobile}
+                >
+                  {currentAppData?.name || 'Aplicaciones'}
+                </TooltipContent>
+              </Tooltip>
               <DropdownMenuContent
                 className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
                 align="start"
@@ -263,12 +280,21 @@ export function AppSidebar({
                         </div>
                       </SidebarMenuButton>
                       <DropdownMenu>
-                        <DropdownMenuTrigger>
-                          <SidebarMenuAction showOnHover>
-                            <IconDotsVertical className="size-4" />
-                            <span className="sr-only">Más opciones</span>
-                          </SidebarMenuAction>
-                        </DropdownMenuTrigger>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <DropdownMenuTrigger className="text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground absolute top-1.5 right-1 aspect-square w-5 rounded-[calc(var(--radius-sm)-2px)] p-0 focus-visible:ring-2 flex items-center justify-center outline-hidden transition-transform group-data-[collapsible=icon]:hidden peer-data-active/menu-button:text-sidebar-accent-foreground group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-open:opacity-100 md:opacity-0">
+                              <IconDotsVertical className="size-4" />
+                              <span className="sr-only">Más opciones</span>
+                            </DropdownMenuTrigger>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side="right"
+                            align="center"
+                            hidden={sidebarState !== 'collapsed' || isMobile}
+                          >
+                            Más opciones
+                          </TooltipContent>
+                        </Tooltip>
                         <DropdownMenuContent
                           className="w-48 rounded-lg"
                           side="right"
@@ -306,26 +332,46 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Chat History Section */}
-        {recentChats.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel className="flex items-center justify-between">
-              <span>Conversaciones</span>
-              {onCreateChat && (
-                <button
-                  type="button"
-                  onClick={onCreateChat}
-                  className="p-0.5 rounded hover:bg-muted transition-colors"
-                  title="Nueva conversación"
-                  aria-label="Nueva conversación"
+        {/* Chat History Section - Always show */}
+        <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center justify-between">
+            <span>Conversaciones</span>
+            {onCreateChat && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onCreateChat}
+                    className="p-0.5 rounded hover:bg-muted transition-colors"
+                    aria-label="Nueva conversación"
+                  >
+                    <IconPlus className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="right"
+                  align="center"
+                  hidden={isMobile}
                 >
-                  <IconPlus className="size-3.5" />
-                </button>
-              )}
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {recentChats.slice(0, 5).map((chat) => {
+                  Nueva conversación
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {recentChats.length === 0 ? (
+                <div className="px-2 py-4 text-center group-data-[collapsible=icon]:hidden">
+                  <IconMessage className="size-8 mx-auto text-muted-foreground/40 mb-2" />
+                  <p className="text-xs text-muted-foreground">
+                    No hay conversaciones
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/70 mt-1">
+                    Inicia un chat con el asistente IA
+                  </p>
+                </div>
+              ) : (
+                recentChats.slice(0, 10).map((chat) => {
                   const isActive = chat.id === activeChatId
 
                   return (
@@ -335,21 +381,34 @@ export function AppSidebar({
                         onClick={() => onLoadChat?.(chat.id)}
                         isActive={isActive}
                       >
-                        <IconMessage className="text-primary" />
-                        <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-                          <span className="truncate">{chat.title}</span>
+                        <IconMessage
+                          className={
+                            isActive ? 'text-primary' : 'text-muted-foreground'
+                          }
+                        />
+                        <div className="flex flex-col group-data-[collapsible=icon]:hidden min-w-0">
+                          <span className="truncate text-sm">{chat.title}</span>
                           <span className="text-[10px] text-muted-foreground">
                             {formatRelativeTime(chat.updated_at)}
                           </span>
                         </div>
                       </SidebarMenuButton>
                       <DropdownMenu>
-                        <DropdownMenuTrigger>
-                          <SidebarMenuAction showOnHover>
-                            <IconDotsVertical className="size-4" />
-                            <span className="sr-only">Más opciones</span>
-                          </SidebarMenuAction>
-                        </DropdownMenuTrigger>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <DropdownMenuTrigger className="text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground absolute top-1.5 right-1 aspect-square w-5 rounded-[calc(var(--radius-sm)-2px)] p-0 focus-visible:ring-2 flex items-center justify-center outline-hidden transition-transform group-data-[collapsible=icon]:hidden peer-data-active/menu-button:text-sidebar-accent-foreground group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-open:opacity-100 md:opacity-0">
+                              <IconDotsVertical className="size-4" />
+                              <span className="sr-only">Más opciones</span>
+                            </DropdownMenuTrigger>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side="right"
+                            align="center"
+                            hidden={sidebarState !== 'collapsed' || isMobile}
+                          >
+                            Más opciones
+                          </TooltipContent>
+                        </Tooltip>
                         <DropdownMenuContent
                           className="w-48 rounded-lg"
                           side="right"
@@ -366,11 +425,11 @@ export function AppSidebar({
                       </DropdownMenu>
                     </SidebarMenuItem>
                   )
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+                })
+              )}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter>

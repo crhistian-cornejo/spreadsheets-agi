@@ -1,10 +1,12 @@
 'use client'
 
-import { lazy, Suspense, useRef, useState } from 'react'
-import type { UIMessage } from '@ai-sdk/react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { IconAlertCircle, IconMessage, IconTable } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import type { UniverSheetHandle } from '@/components/univer/UniverSheet'
+import type { UIMessage } from '@tanstack/ai-react'
+import type { StoredUIMessagePart } from '@/lib/supabase'
+import type { StoredArtifact } from '@/components/chat/ChatProvider'
 
 const UniverSheet = lazy(() =>
   import('@/components/univer/UniverSheet').then((m) => ({
@@ -28,7 +30,14 @@ interface AIChatModeProps {
   onSwitchToNative?: (artifactData: Record<string, unknown>) => void
   chatId?: string
   initialMessages?: UIMessage[]
-  onMessageSent?: (role: 'user' | 'assistant', content: string) => void
+  initialArtifacts?: StoredArtifact[]
+  /** Callback when a message needs to be persisted (with full parts) */
+  onMessagePersist?: (message: {
+    id: string
+    role: 'user' | 'assistant'
+    parts: StoredUIMessagePart[]
+    artifacts?: StoredArtifact[]
+  }) => void
 }
 
 type MobileTab = 'chat' | 'artifact'
@@ -94,7 +103,7 @@ function AIChatModeContent({
   darkMode: boolean
   onSwitchToNative?: (artifactData: Record<string, unknown>) => void
 }) {
-  const { currentArtifact, error, status } = useChatContext()
+  const { currentArtifact, error, isLoading } = useChatContext()
   const [mobileTab, setMobileTab] = useState<MobileTab>('chat')
 
   // Auto-switch to artifact tab when one is created (mobile only)
@@ -162,7 +171,7 @@ function AIChatModeContent({
         {/* Chat Panel */}
         <div
           className={cn(
-            'flex flex-col min-h-0',
+            'flex flex-col min-h-0 relative',
             // Desktop: side-by-side layout
             'md:flex',
             hasArtifact ? 'md:w-1/2 md:border-r md:border-border' : 'md:flex-1',
@@ -186,7 +195,7 @@ function AIChatModeContent({
           )}
 
           {/* Status indicator for debugging */}
-          {status === 'submitted' && (
+          {isLoading && (
             <div className="mx-3 sm:mx-4 mt-2 text-xs text-muted-foreground">
               Procesando...
             </div>
@@ -195,8 +204,13 @@ function AIChatModeContent({
           {/* Conversation */}
           <ChatConversation className="flex-1 overflow-hidden" />
 
+          {/* Fade effect between chat and input */}
+          <div className="absolute bottom-0 left-0 right-0 h-16 pointer-events-none z-10">
+            <div className="h-full bg-gradient-to-t from-background via-background/60 to-transparent" />
+          </div>
+
           {/* Input */}
-          <ChatInput />
+          <ChatInput className="relative z-20" />
         </div>
 
         {/* Artifact Preview Panel */}
@@ -226,19 +240,31 @@ export function AIChatMode({
   onSwitchToNative,
   chatId,
   initialMessages,
-  onMessageSent,
+  initialArtifacts,
+  onMessagePersist,
 }: AIChatModeProps) {
   const univerRef = useRef<UniverSheetHandle>(null)
+  useEffect(() => {
+    console.log('[AIChatMode] Mounted', {
+      chatId,
+      initialMessagesCount: initialMessages?.length || 0,
+    })
+  }, [chatId, initialMessages?.length])
 
   return (
     <ChatProvider
       chatId={chatId}
       initialMessages={initialMessages}
-      onMessageSent={onMessageSent}
+      initialArtifacts={initialArtifacts}
+      onMessagePersist={onMessagePersist}
       univerRef={univerRef}
     >
       {/* Hidden UniverSheet for tool execution - mounted but not visible */}
-      <div className="hidden">
+      <div
+        className="fixed left-[-9999px] top-0"
+        style={{ width: '1200px', height: '800px' }}
+        aria-hidden="true"
+      >
         <Suspense fallback={null}>
           <UniverSheet ref={univerRef} darkMode={darkMode} />
         </Suspense>

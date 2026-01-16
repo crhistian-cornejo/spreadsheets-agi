@@ -7,6 +7,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { chat, toServerSentEventsResponse } from '@tanstack/ai'
 import { openaiText } from '@tanstack/ai-openai'
 import { spreadsheetToolDefs } from '@/lib/ai/tools'
+import { getModelById } from '@/lib/ai/model-registry'
 
 // System prompt for the spreadsheet AI assistant
 const SYSTEM_PROMPT = `Eres S-AGI, un asistente experto en hojas de cálculo y análisis de datos. Tu trabajo es ayudar a los usuarios a crear, editar, visualizar y analizar datos en spreadsheets.
@@ -64,7 +65,24 @@ export const Route = createFileRoute('/api/chat')({
 
         try {
           const body = await request.json()
-          const { messages, conversationId } = body
+          const {
+            messages,
+            conversationId,
+            reasoning,
+            modelId,
+            files,
+            provider,
+          } = body as {
+            messages: Array<{
+              role: 'user' | 'assistant' | 'tool'
+              content: any
+            }>
+            conversationId?: string
+            reasoning?: 'none' | 'minimal' | 'low' | 'medium' | 'high'
+            modelId?: string
+            provider?: 'openai' | 'gemini'
+            files?: Array<{ filename: string; mediaType: string; data: string }>
+          }
 
           console.log('[Chat API] Messages count:', messages?.length || 0)
 
@@ -77,18 +95,53 @@ export const Route = createFileRoute('/api/chat')({
 
           // Create streaming chat with TanStack AI
           // Tools are passed as definitions - client will execute them
+          const selectedModel = getModelById(modelId || 'openai:gpt-5.2')
+
+          if (selectedModel.provider !== 'openai') {
+            return new Response(
+              JSON.stringify({
+                error: 'Model provider not supported',
+                message: `Provider ${selectedModel.provider} not configured`,
+              }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } },
+            )
+          }
+
+          const modelOptions =
+            reasoning && reasoning !== 'none'
+              ? {
+                  reasoning: {
+                    effort: reasoning,
+                    summary: 'auto' as const,
+                  },
+                }
+              : undefined
+
           const stream = chat({
-            adapter: openaiText('gpt-5-nano-2025-08-07'),
-            messages,
+            adapter: openaiText(selectedModel.apiModel as any),
+            messages: messages as any,
             systemPrompts: [SYSTEM_PROMPT],
             tools: spreadsheetToolDefs,
             conversationId,
+            modelOptions,
           })
+
+          const loggedStream = (async function* () {
+            for await (const chunk of stream) {
+              if (chunk.type === 'thinking') {
+                console.log('[Chat API] Thinking chunk:', {
+                  length: chunk.content?.length || 0,
+                  delta: chunk.delta,
+                })
+              }
+              yield chunk
+            }
+          })()
 
           console.log('[Chat API] Stream created, returning SSE response')
 
           // Convert to Server-Sent Events response
-          return toServerSentEventsResponse(stream)
+          return toServerSentEventsResponse(loggedStream)
         } catch (error) {
           console.error('[Chat API] Error:', error)
 

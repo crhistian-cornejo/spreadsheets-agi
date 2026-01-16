@@ -54,6 +54,8 @@ interface NativeModeProps {
     parts: StoredUIMessagePart[]
     artifacts?: StoredArtifact[]
   }) => void
+  /** Current workbook ID for file uploads */
+  workbookId?: string | null
   /** Current app type */
   currentApp: 'sheets' | 'docs' | 'slides'
   /** Callback when app type changes */
@@ -163,6 +165,7 @@ export function NativeMode({
   initialMessages,
   initialArtifacts,
   onMessagePersist,
+  workbookId,
   currentApp,
   onAppChange,
 }: NativeModeProps) {
@@ -288,6 +291,7 @@ export function NativeMode({
               initialArtifacts={initialArtifacts}
               onMessagePersist={onMessagePersist}
               univerRef={univerRef}
+              workbookId={workbookId}
             >
               <ChatSidebarContent onClose={() => onPanelChange(false)} />
             </ChatProvider>

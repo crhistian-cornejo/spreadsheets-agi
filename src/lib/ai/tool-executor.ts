@@ -136,7 +136,7 @@ function executeCreateSpreadsheet(
     title,
     columns,
     rowCount: rows.length,
-    workbookData,
+    workbookData: workbookData as unknown as Record<string, unknown>,
   }
 
   const artifact: SpreadsheetArtifact = {
@@ -144,7 +144,7 @@ function executeCreateSpreadsheet(
     title,
     type: 'sheet',
     createdAt: new Date(),
-    data: workbookData,
+    data: workbookData as unknown as Record<string, unknown>,
   }
 
   onArtifactCreated?.(artifact)

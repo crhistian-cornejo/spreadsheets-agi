@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils'
 interface CreateFileDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreateFile: (name: string, type: 'sheets' | 'docs') => void
+  onCreateFile: (name: string, type: 'sheets' | 'docs') => void | Promise<void>
   defaultType?: 'sheets' | 'docs'
 }
 
@@ -46,8 +46,13 @@ export function CreateFileDialog({
 
     setIsSubmitting(true)
     try {
-      onCreateFile(name.trim(), type)
+      // Wait for the create operation to complete
+      await onCreateFile(name.trim(), type)
+      // Only close if successful (if onCreateFile throws, we stay open)
       onOpenChange(false)
+    } catch (error) {
+      console.error('[CreateFileDialog] Error creating file:', error)
+      // Don't close the dialog on error
     } finally {
       setIsSubmitting(false)
     }

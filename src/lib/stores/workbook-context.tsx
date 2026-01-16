@@ -181,11 +181,21 @@ export function WorkbookProvider({ children }: { children: React.ReactNode }) {
       type: 'sheets' | 'docs',
       options?: { folderId?: string | null; category?: DocumentCategory },
     ): Promise<Workbook | null> => {
-      if (!user) return null
+      console.log('[WorkbookContext] createWorkbook called:', {
+        name,
+        type,
+        userId: user?.id,
+      })
+
+      if (!user) {
+        console.error('[WorkbookContext] No user available for createWorkbook')
+        return null
+      }
 
       const content =
         type === 'sheets' ? getEmptySheetData(name) : getEmptyDocData(name)
 
+      console.log('[WorkbookContext] Calling workbookService.createWorkbook...')
       const { data, error } = await workbookService.createWorkbook(
         user.id,
         name,
@@ -195,9 +205,11 @@ export function WorkbookProvider({ children }: { children: React.ReactNode }) {
       )
 
       if (error) {
-        console.error('Error creating workbook:', error)
+        console.error('[WorkbookContext] Error creating workbook:', error)
         return null
       }
+
+      console.log('[WorkbookContext] Workbook created successfully:', data?.id)
 
       if (data) {
         setWorkbooks((prev) => [data, ...prev])

@@ -160,6 +160,8 @@ export type SpreadsheetToolOutput =
 // Artifact Types
 // ============================================================================
 
+export const ARTIFACT_WORKBOOK_PREFIX = 'Artifact: '
+
 export type ArtifactType = 'sheet' | 'chart' | 'pivot' | 'doc'
 
 export interface SpreadsheetArtifact {

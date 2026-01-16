@@ -2,24 +2,21 @@
 
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { IconAlertCircle, IconMessage, IconTable } from '@tabler/icons-react'
-import { cn } from '@/lib/utils'
-import type { UniverSheetHandle } from '@/components/univer/UniverSheet'
 import type { UIMessage } from '@tanstack/ai-react'
-import type { StoredUIMessagePart } from '@/lib/supabase'
 import type { StoredArtifact } from '@/components/chat/ChatProvider'
+import { ArtifactPanel } from '@/components/artifact'
+import { ChatConversation } from '@/components/chat/ChatConversation'
+import { ChatInput } from '@/components/chat/ChatInput'
+import { ChatProvider, useChatContext } from '@/components/chat/ChatProvider'
+import type { UniverSheetHandle } from '@/components/univer/UniverSheet'
+import type { StoredUIMessagePart } from '@/lib/supabase'
+import { cn } from '@/lib/utils'
 
 const UniverSheet = lazy(() =>
   import('@/components/univer/UniverSheet').then((m) => ({
     default: m.UniverSheet,
   })),
 )
-
-// New shared chat components
-import { ChatProvider } from '@/components/chat/ChatProvider'
-import { ChatConversation } from '@/components/chat/ChatConversation'
-import { ChatInput } from '@/components/chat/ChatInput'
-import { useChatContext } from '@/components/chat/ChatProvider'
-import { ArtifactPanel } from '@/components/artifact'
 
 // ============================================================================
 // Types
@@ -29,15 +26,17 @@ interface AIChatModeProps {
   darkMode: boolean
   onSwitchToNative?: (artifactData: Record<string, unknown>) => void
   chatId?: string
-  initialMessages?: UIMessage[]
-  initialArtifacts?: StoredArtifact[]
+  initialMessages?: Array<UIMessage>
+  initialArtifacts?: Array<StoredArtifact>
   /** Callback when a message needs to be persisted (with full parts) */
   onMessagePersist?: (message: {
     id: string
     role: 'user' | 'assistant'
-    parts: StoredUIMessagePart[]
-    artifacts?: StoredArtifact[]
+    parts: Array<StoredUIMessagePart>
+    artifacts?: Array<StoredArtifact>
   }) => void
+  /** Current workbook ID for file uploads */
+  workbookId?: string | null
 }
 
 type MobileTab = 'chat' | 'artifact'
@@ -187,7 +186,7 @@ function AIChatModeContent({
                 <p className="text-xs sm:text-sm font-medium text-destructive">
                   {errorInfo.title}
                 </p>
-                <p className="text-[10px] sm:text-xs text-destructive/80 mt-1 break-words">
+                <p className="text-[10px] sm:text-xs text-destructive/80 mt-1 wrap-break-word">
                   {errorInfo.description}
                 </p>
               </div>
@@ -204,13 +203,17 @@ function AIChatModeContent({
           {/* Conversation */}
           <ChatConversation className="flex-1 overflow-hidden" />
 
-          {/* Fade effect between chat and input */}
-          <div className="absolute bottom-0 left-0 right-0 h-16 pointer-events-none z-10">
-            <div className="h-full bg-gradient-to-t from-background via-background/60 to-transparent" />
-          </div>
+          {/* Fade effect between conversation and input */}
+          <div
+            className="pointer-events-none h-8 -mt-8 relative z-10"
+            style={{
+              background:
+                'linear-gradient(to bottom, transparent 0%, hsl(var(--background)) 100%)',
+            }}
+          />
 
           {/* Input */}
-          <ChatInput className="relative z-20" />
+          <ChatInput className="relative z-20 bg-background" />
         </div>
 
         {/* Artifact Preview Panel */}
@@ -242,6 +245,7 @@ export function AIChatMode({
   initialMessages,
   initialArtifacts,
   onMessagePersist,
+  workbookId,
 }: AIChatModeProps) {
   const univerRef = useRef<UniverSheetHandle>(null)
   useEffect(() => {
@@ -258,6 +262,7 @@ export function AIChatMode({
       initialArtifacts={initialArtifacts}
       onMessagePersist={onMessagePersist}
       univerRef={univerRef}
+      workbookId={workbookId}
     >
       {/* Hidden UniverSheet for tool execution - mounted but not visible */}
       <div

@@ -1,10 +1,10 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
-
-const isDev = import.meta.env.DEV
 import appCss from '../styles.css?url'
 import { AuthProvider } from '@/lib/supabase'
+
+const isDev = import.meta.env.DEV
 
 export const Route = createRootRoute({
   head: () => ({

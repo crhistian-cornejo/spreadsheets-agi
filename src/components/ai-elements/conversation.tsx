@@ -1,23 +1,28 @@
 'use client'
 
+import type { ComponentProps } from 'react'
+import { forwardRef, useCallback } from 'react'
+import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom'
+import { ArrowDownIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { ArrowDownIcon } from 'lucide-react'
-import type { ComponentProps } from 'react'
-import { useCallback } from 'react'
-import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom'
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>
 
-export const Conversation = ({ className, ...props }: ConversationProps) => (
-  <StickToBottom
-    className={cn('relative flex-1 overflow-y-hidden', className)}
-    initial="smooth"
-    resize="smooth"
-    role="log"
-    {...props}
-  />
+export const Conversation = forwardRef<HTMLDivElement, ConversationProps>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} className={cn('relative flex-1 flex flex-col min-h-0', className)}>
+      <StickToBottom
+        className="flex-1 overflow-y-hidden"
+        initial="smooth"
+        resize="smooth"
+        role="log"
+        {...props}
+      />
+    </div>
+  ),
 )
+Conversation.displayName = 'Conversation'
 
 export type ConversationContentProps = ComponentProps<
   typeof StickToBottom.Content

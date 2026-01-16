@@ -1,34 +1,47 @@
 'use client'
 
 import * as React from 'react'
-import { IconCheck, IconBrain, IconChevronDown } from '@tabler/icons-react'
-import { cn } from '@/lib/utils'
-import { Logo } from '@/components/ui/Logo'
+import {
+  IconArrowBackUp,
+  IconCheck,
+  IconCopy,
+  IconRefresh,
+} from '@tabler/icons-react'
+import { toast } from 'sonner'
+import { useChatContext } from './ChatProvider'
 import type { UIMessage } from '@tanstack/ai-react'
+import { Logo } from '@/components/ui/Logo'
+import { cn } from '@/lib/utils'
 
 // AI Elements components
 import {
   Conversation,
   ConversationContent,
-  ConversationScrollButton,
   ConversationEmptyState,
+  ConversationScrollButton,
 } from '@/components/ai-elements/conversation'
 import {
+  MessageAction,
+  MessageActions,
   Message as MessageComponent,
   MessageContent,
   MessageResponse,
+  MessageToolbar,
 } from '@/components/ai-elements/message'
+import { UserAvatar } from '@/components/ui/UserAvatar'
 import {
   Tool,
-  ToolHeader,
   ToolContent,
+  ToolHeader,
   ToolInput,
   ToolOutput,
 } from '@/components/ai-elements/tool'
-import { Loader } from '@/components/ai-elements/loader'
-import { Suggestions, Suggestion } from '@/components/ai-elements/suggestion'
-
-import { useChatContext } from './ChatProvider'
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from '@/components/ai-elements/reasoning'
+import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion'
 
 // ============================================================================
 // Thinking Part Component
@@ -45,37 +58,27 @@ function ThinkingPart({
   isComplete = false,
   className,
 }: ThinkingPartProps) {
-  const [isOpen, setIsOpen] = React.useState(!isComplete)
-
-  React.useEffect(() => {
-    if (isComplete) {
-      const timer = setTimeout(() => setIsOpen(false), 800)
-      return () => clearTimeout(timer)
-    }
-  }, [isComplete])
-
   return (
-    <details
-      open={isOpen}
+    <Reasoning
       className={cn(
-        'group rounded-lg border border-violet-500/30 bg-violet-500/5 text-sm mb-3',
+        'rounded-md border border-border/60 bg-muted/40 px-3 py-2',
         className,
       )}
-      onToggle={(e) => setIsOpen((e.target as HTMLDetailsElement).open)}
+      defaultOpen={!isComplete}
+      isStreaming={!isComplete}
     >
-      <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300">
-        <IconBrain className="size-4 animate-pulse" />
-        <span className="font-medium text-xs">
-          {isComplete ? 'Razonamiento completado' : 'Pensando...'}
-        </span>
-        <IconChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="border-t border-violet-500/20 px-3 py-2 max-h-48 overflow-y-auto">
-        <pre className="whitespace-pre-wrap font-sans text-xs text-muted-foreground leading-relaxed">
-          {content}
-        </pre>
-      </div>
-    </details>
+      <ReasoningTrigger
+        className="text-xs"
+        getThinkingMessage={(isStreaming, duration) => {
+          if (isStreaming) return 'Pensando...'
+          if (duration === undefined) return 'Razonamiento'
+          return `Pensó por ${duration}s`
+        }}
+      />
+      <ReasoningContent className="text-xs leading-relaxed text-muted-foreground">
+        {content}
+      </ReasoningContent>
+    </Reasoning>
   )
 }
 
@@ -104,10 +107,6 @@ function getToolDisplayName(toolName: string): string {
 // ============================================================================
 
 function getTextContent(message: UIMessage): string {
-  if (!message.parts || message.parts.length === 0) {
-    return ''
-  }
-
   return message.parts
     .filter((part): part is { type: 'text'; content: string } => {
       return (
@@ -124,10 +123,6 @@ function getTextContent(message: UIMessage): string {
 // ============================================================================
 
 function getThinkingContent(message: UIMessage): string {
-  if (!message.parts || message.parts.length === 0) {
-    return ''
-  }
-
   return message.parts
     .filter((part): part is { type: 'thinking'; content: string } => {
       return (
@@ -157,7 +152,7 @@ const DEFAULT_SUGGESTIONS = [
 export interface ChatConversationProps {
   className?: string
   /** Custom suggestions for empty state */
-  suggestions?: string[]
+  suggestions?: Array<string>
   /** Custom empty state content */
   emptyStateContent?: React.ReactNode
   /** Show compact version (for sidebar) */
@@ -170,275 +165,361 @@ export function ChatConversation({
   emptyStateContent,
   compact = false,
 }: ChatConversationProps) {
-  const { messages, isLoading, isStreaming, sendMessage, error } =
-    useChatContext()
+  const {
+    messages,
+    isLoading,
+    isStreaming,
+    sendMessage,
+    reload,
+    setReplyingTo,
+    error,
+    streamingThinking,
+  } = useChatContext()
 
-  // Debug logging
+  // Scroll state for fade indicators
+  const [canScrollUp, setCanScrollUp] = React.useState(false)
+  const [canScrollDown, setCanScrollDown] = React.useState(false)
+  const conversationRef = React.useRef<HTMLDivElement>(null)
+
+  const handleScroll = React.useCallback(() => {
+    if (conversationRef.current) {
+      const scrollable =
+        conversationRef.current.querySelector(
+          '[data-stick-to-bottom-scroll-container="true"]',
+        ) || conversationRef.current
+      const { scrollTop, scrollHeight, clientHeight } =
+        scrollable as HTMLElement
+      setCanScrollUp(scrollTop > 10)
+      setCanScrollDown(scrollTop + clientHeight < scrollHeight - 10)
+    }
+  }, [])
+
   React.useEffect(() => {
-    console.log('[ChatConversation] Render state:', {
-      messagesCount: messages.length,
-      isLoading,
-      isStreaming,
-      hasError: !!error,
-      messages: messages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        partsCount: m.parts.length,
-        parts: m.parts.map((p) => ({
-          type: p.type,
-          hasContent:
-            p.type === 'text' ? !!(p as { content: string }).content : false,
-        })),
-      })),
-    })
-  }, [messages, isLoading, isStreaming, error])
+    // StickToBottom might take a moment to initialize its scroll container
+    const timer = setTimeout(handleScroll, 150)
 
-  // Render message content using TanStack AI UIMessage parts
+    // Check if the scroll container exists
+    const scrollable =
+      conversationRef.current?.querySelector(
+        '[data-stick-to-bottom-scroll-container="true"]',
+      ) || conversationRef.current
+    if (scrollable) {
+      scrollable.addEventListener('scroll', handleScroll)
+      const observer = new ResizeObserver(handleScroll)
+      observer.observe(scrollable)
+      return () => {
+        scrollable.removeEventListener('scroll', handleScroll)
+        observer.disconnect()
+        clearTimeout(timer)
+      }
+    }
+    return () => clearTimeout(timer)
+  }, [handleScroll, messages, isLoading, isStreaming])
+
+  // Custom message renderer to handle parts and tools
   const renderMessageContent = React.useCallback(
     (message: UIMessage, isCurrentlyStreaming: boolean) => {
       const textContent = getTextContent(message)
       const thinkingContent = getThinkingContent(message)
 
-      // Debug: log message content extraction
-      if (textContent || thinkingContent) {
-        console.log('[ChatConversation] Rendering message:', {
-          messageId: message.id,
-          role: message.role,
-          textLength: textContent.length,
-          thinkingLength: thinkingContent.length,
-          textPreview: textContent.substring(0, 50),
-        })
-      } else {
-        console.log('[ChatConversation] Message has no content:', {
-          messageId: message.id,
-          role: message.role,
-          parts: message.parts.map((p) => p.type),
-        })
-      }
-
-      // Filter tool call parts using type narrowing
-      const toolCallParts = message.parts.filter(
-        (part) => part.type === 'tool-call',
-      )
-
       // Determine if thinking is complete (we have text content already)
       const isThinkingComplete = !!textContent || !isCurrentlyStreaming
+      const streamingThinkingContent = isCurrentlyStreaming
+        ? streamingThinking
+        : ''
 
       return (
         <>
-          {/* Thinking/Reasoning content - show first while AI is reasoning */}
-          {thinkingContent && (
+          {(thinkingContent || streamingThinkingContent) && (
             <ThinkingPart
-              content={thinkingContent}
+              content={thinkingContent || streamingThinkingContent}
               isComplete={isThinkingComplete}
             />
           )}
 
-          {/* Main text content */}
           {textContent && (
             <MessageResponse
+              className="prose prose-sm dark:prose-invert max-w-none"
               mode={isCurrentlyStreaming ? 'streaming' : 'static'}
             >
               {textContent}
             </MessageResponse>
           )}
 
-          {/* Tool calls */}
-          {toolCallParts.map((toolCall) => {
-            if (toolCall.type !== 'tool-call') return null
+          {message.parts
+            .filter((part) => part.type === 'tool-call')
+            .map((toolCall) => {
+              const toolCallAny = toolCall as {
+                id: string
+                name: string
+                arguments: string
+                state?: string
+                output?: unknown
+              }
 
-            // Access properties safely
-            const toolCallAny = toolCall as {
-              id: string
-              name: string
-              arguments: string
-              state?: string
-              output?: unknown
-            }
-
-            const args =
-              typeof toolCallAny.arguments === 'string'
-                ? JSON.parse(toolCallAny.arguments)
-                : toolCallAny.arguments
-            const state = toolCallAny.state || 'pending'
-            const hasOutput = toolCallAny.output !== undefined
-
-            return (
-              <Tool
-                key={toolCallAny.id}
-                defaultOpen={state !== 'output-available'}
-              >
-                <ToolHeader
-                  title={getToolDisplayName(toolCallAny.name)}
-                  type={`tool-${toolCallAny.name}`}
-                  state={
-                    state === 'output-available' || hasOutput
-                      ? 'output-available'
-                      : state === 'output-error'
-                        ? 'output-error'
-                        : 'input-streaming'
-                  }
-                />
-                <ToolContent>
-                  <ToolInput input={args} />
-                  {hasOutput && (
-                    <ToolOutput
-                      output={toolCallAny.output}
-                      errorText={undefined}
-                    />
-                  )}
-                </ToolContent>
-              </Tool>
-            )
-          })}
-
-          {/* Success indicator for completed tools */}
-          {toolCallParts.some((tc) => {
-            const tcAny = tc as { output?: unknown }
-            return tcAny.output !== undefined
-          }) && (
-            <div className="flex items-center gap-3 w-full p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 mt-2">
-              <div className="size-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                <IconCheck className="size-4 text-emerald-500" />
-              </div>
-              <div className="text-left">
-                <p className="font-medium text-sm text-emerald-600 dark:text-emerald-400">
-                  Operación completada
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Los cambios se aplicaron a la hoja de cálculo
-                </p>
-              </div>
-            </div>
-          )}
-        </>
-      )
-    },
-    [],
-  )
-
-  return (
-    <Conversation className={cn('flex-1', className)}>
-      <ConversationContent className={cn(compact ? 'p-3' : 'p-3 sm:p-4')}>
-        {messages.length === 0 && !isLoading ? (
-          emptyStateContent || (
-            <ConversationEmptyState
-              className={cn('h-full w-full', !compact && 'max-w-2xl mx-auto')}
-            >
-              {/* Logo */}
-              <div className="relative mb-4 sm:mb-6">
-                <div
-                  className={cn(
-                    'relative rounded-2xl bg-card border ring-1 ring-border/50 flex items-center justify-center',
-                    compact ? 'size-12' : 'size-12 sm:size-16',
-                  )}
-                >
-                  <Logo
-                    className={cn(compact ? 'size-6' : 'size-6 sm:size-8')}
-                  />
-                </div>
-              </div>
-
-              {/* Title */}
-              <div className="text-center space-y-1 sm:space-y-2 mb-6 sm:mb-8">
-                <h1
-                  className={cn(
-                    'font-bold tracking-tight text-balance',
-                    compact ? 'text-lg' : 'text-xl sm:text-2xl',
-                  )}
-                >
-                  {compact ? (
-                    '¿En qué puedo ayudarte?'
-                  ) : (
-                    <>
-                      Hola! Soy{' '}
-                      <span className="text-primary italic">S-AGI</span>
-                    </>
-                  )}
-                </h1>
-                {!compact && (
-                  <p className="text-sm sm:text-base text-muted-foreground font-medium text-pretty">
-                    Tu asistente inteligente de hojas de cálculo
-                  </p>
-                )}
-              </div>
-
-              {/* Suggestions - responsive layout */}
-              <Suggestions
-                className={cn('w-full', compact ? '' : 'max-w-2xl mx-auto')}
-                layout="wrap"
-              >
-                {suggestions.map((suggestion) => (
-                  <Suggestion
-                    key={suggestion}
-                    suggestion={suggestion}
-                    onClick={(s) => sendMessage(s)}
-                  />
-                ))}
-              </Suggestions>
-            </ConversationEmptyState>
-          )
-        ) : (
-          <div className={cn('w-full', !compact && 'max-w-2xl mx-auto')}>
-            {messages.map((message, index) => {
-              const isLastAssistantMessage =
-                message.role === 'assistant' && index === messages.length - 1
+              const args =
+                typeof toolCallAny.arguments === 'string'
+                  ? JSON.parse(toolCallAny.arguments)
+                  : toolCallAny.arguments
+              const state = toolCallAny.state || 'pending'
+              const hasOutput = toolCallAny.output !== undefined
 
               return (
-                <MessageComponent key={message.id} from={message.role}>
-                  <MessageContent>
-                    {/* Assistant header */}
-                    {message.role === 'assistant' && (
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="size-5 sm:size-6 rounded-full bg-primary/10 flex items-center justify-center">
-                          <Logo className="size-3 sm:size-3.5 text-primary" />
-                        </div>
-                        <span className="text-[10px] sm:text-xs font-medium text-muted-foreground">
-                          S-AGI
-                        </span>
-                      </div>
+                <Tool
+                  key={toolCallAny.id}
+                  defaultOpen={state !== 'output-available'}
+                >
+                  <ToolHeader
+                    title={getToolDisplayName(toolCallAny.name)}
+                    type={`tool-${toolCallAny.name}`}
+                    state={
+                      state === 'output-available' || hasOutput
+                        ? 'output-available'
+                        : state === 'output-error'
+                          ? 'output-error'
+                          : 'input-streaming'
+                    }
+                  />
+                  <ToolContent>
+                    <ToolInput input={args} />
+                    {hasOutput && (
+                      <ToolOutput
+                        output={toolCallAny.output}
+                        errorText={undefined}
+                      />
                     )}
-
-                    {/* Message content */}
-                    <div className="prose prose-sm dark:prose-invert max-w-none">
-                      {message.role === 'user' ? (
-                        // For user messages, show text directly from parts
-                        <div className="text-foreground">
-                          {getTextContent(message) || '(Sin contenido)'}
-                        </div>
-                      ) : (
-                        // For assistant messages, use the full render function
-                        renderMessageContent(
-                          message,
-                          isLastAssistantMessage && isStreaming,
-                        )
-                      )}
-                    </div>
-                  </MessageContent>
-                </MessageComponent>
+                  </ToolContent>
+                </Tool>
               )
             })}
 
-            {/* Loading state when no messages or streaming */}
-            {isLoading && messages[messages.length - 1]?.role === 'user' && (
-              <MessageComponent from="assistant">
-                <MessageContent>
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="size-5 sm:size-6 rounded-full bg-primary/10 flex items-center justify-center">
-                      <Logo className="size-3 sm:size-3.5 text-primary animate-pulse" />
-                    </div>
-                    <span className="text-[10px] sm:text-xs font-medium text-muted-foreground">
-                      S-AGI
-                    </span>
-                  </div>
-                  <Loader className="text-muted-foreground" />
-                </MessageContent>
-              </MessageComponent>
+          {/* If the message had tool calls that are all successful, show a summary */}
+          {message.role === 'assistant' &&
+            message.parts.some((part) => part.type === 'tool-call') &&
+            message.parts.some((part) => {
+              if (part.type !== 'tool-call') return false
+              const tcAny = part as { output?: unknown }
+              return tcAny.output !== undefined
+            }) && (
+              <div className="flex items-center gap-3 w-full p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 mt-2">
+                <div className="size-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                  <IconCheck className="size-4 text-emerald-500" />
+                </div>
+                <div className="text-left">
+                  <p className="font-medium text-sm text-emerald-600 dark:text-emerald-400">
+                    Operación completada
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Los cambios se aplicaron a la hoja de cálculo
+                  </p>
+                </div>
+              </div>
             )}
-          </div>
+        </>
+      )
+    },
+    [streamingThinking],
+  )
+
+  return (
+    <div
+      className={cn(
+        'relative flex-1 flex flex-col min-h-0 overflow-hidden bg-background',
+        className,
+      )}
+    >
+      {/* Top fade indicator - Always in DOM for stability */}
+      <div
+        className={cn(
+          'absolute top-0 inset-x-0 h-12 pointer-events-none z-30 transition-opacity duration-300',
+          canScrollUp ? 'opacity-100' : 'opacity-0',
         )}
-      </ConversationContent>
-      <ConversationScrollButton />
-    </Conversation>
+        style={{
+          background:
+            'linear-gradient(to bottom, hsl(var(--background)) 0%, hsl(var(--background) / 0.8) 50%, transparent 100%)',
+        }}
+      />
+
+      <Conversation
+        ref={conversationRef}
+        className="flex-1 [&_[data-stick-to-bottom-scroll-container='true']]:overflow-y-auto [&_[data-stick-to-bottom-scroll-container='true']]:overflow-x-hidden [&_[data-stick-to-bottom-scroll-container='true']]:[&::-webkit-scrollbar]:w-1.5 [&_[data-stick-to-bottom-scroll-container='true']]:[&::-webkit-scrollbar-track]:bg-transparent [&_[data-stick-to-bottom-scroll-container='true']]:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/20 [&_[data-stick-to-bottom-scroll-container='true']]:[&::-webkit-scrollbar-thumb]:rounded-full [&_[data-stick-to-bottom-scroll-container='true']]:[&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/40"
+      >
+        <ConversationContent
+          className={cn(compact ? 'px-3 py-6' : 'px-3 sm:px-4 py-8 sm:py-12')}
+        >
+          {messages.length === 0 && !isLoading ? (
+            emptyStateContent || (
+              <ConversationEmptyState
+                className={cn('h-full w-full', !compact && 'max-w-2xl mx-auto')}
+              >
+                {/* Logo */}
+                <div className="relative mb-4 sm:mb-6">
+                  <div
+                    className={cn(
+                      'relative rounded-2xl bg-card border ring-1 ring-border/50 flex items-center justify-center',
+                      compact ? 'size-12' : 'size-12 sm:size-16',
+                    )}
+                  >
+                    <Logo
+                      className={cn(compact ? 'size-6' : 'size-6 sm:size-8')}
+                    />
+                  </div>
+                </div>
+
+                {/* Title */}
+                <div className="text-center space-y-1 sm:space-y-2 mb-6 sm:mb-8">
+                  <h1
+                    className={cn(
+                      'font-bold tracking-tight text-balance',
+                      compact ? 'text-lg' : 'text-xl sm:text-2xl',
+                    )}
+                  >
+                    ¿En qué puedo ayudarte hoy?
+                  </h1>
+                  <p className="text-muted-foreground text-sm sm:text-base max-w-sm mx-auto">
+                    Puedo ayudarte a crear tablas, analizar datos o generar
+                    reportes inteligentes.
+                  </p>
+                </div>
+
+                {/* Suggestions */}
+                <Suggestions className="max-w-lg" layout="wrap">
+                  {suggestions.map((s) => (
+                    <Suggestion
+                      key={s}
+                      suggestion={s}
+                      onClick={(text) => sendMessage({ text })}
+                    >
+                      {s}
+                    </Suggestion>
+                  ))}
+                </Suggestions>
+              </ConversationEmptyState>
+            )
+          ) : (
+            <div
+              className={cn(
+                'w-full',
+                !compact && 'max-w-2xl mx-auto space-y-4 sm:space-y-6',
+              )}
+            >
+              {messages.map((message, index) => {
+                const isLastAssistantMessage =
+                  message.role === 'assistant' && index === messages.length - 1
+
+                return (
+                  <MessageComponent key={message.id} from={message.role}>
+                    <MessageContent
+                      className={cn(
+                        'gap-3',
+                        message.role === 'user' && 'items-end',
+                      )}
+                    >
+                      {message.role === 'assistant' && (
+                        <div className="flex items-center gap-2">
+                          <div className="size-6 rounded-full bg-primary/10 flex items-center justify-center">
+                            <Logo className="size-3.5 text-primary" />
+                          </div>
+                          <span className="text-[10px] font-medium text-muted-foreground">
+                            S-AGI
+                          </span>
+                        </div>
+                      )}
+                      {message.role === 'user' && (
+                        <div className="flex items-center gap-2 justify-end w-full">
+                          <span className="text-[10px] font-medium text-muted-foreground">
+                            Yo
+                          </span>
+                          <UserAvatar size="sm" />
+                        </div>
+                      )}
+                      {renderMessageContent(
+                        message,
+                        isStreaming && isLastAssistantMessage,
+                      )}
+                    </MessageContent>
+
+                    {!isStreaming || !isLastAssistantMessage ? (
+                      <MessageToolbar
+                        className={cn(
+                          'opacity-0 group-hover:opacity-100 transition-opacity',
+                          message.role === 'user'
+                            ? 'justify-end'
+                            : 'justify-start',
+                        )}
+                      >
+                        <MessageActions className="mb-2">
+                          <MessageAction
+                            tooltip="Copiar"
+                            onClick={() => {
+                              const text = getTextContent(message)
+                              navigator.clipboard.writeText(text)
+                              toast.success('Copiado al portapapeles')
+                            }}
+                          >
+                            <IconCopy className="size-3.5" />
+                          </MessageAction>
+
+                          <MessageAction
+                            tooltip="Responder"
+                            onClick={() => {
+                              setReplyingTo(message)
+                              // Focus input
+                              const input = document.querySelector('textarea')
+                              if (input) {
+                                input.focus()
+                              }
+                            }}
+                          >
+                            <IconArrowBackUp className="size-3.5" />
+                          </MessageAction>
+
+                          {message.role === 'assistant' && (
+                            <MessageAction
+                              tooltip="Regenerar"
+                              onClick={() => {
+                                reload()
+                                toast.info('Regenerando respuesta...')
+                              }}
+                            >
+                              <IconRefresh className="size-3.5" />
+                            </MessageAction>
+                          )}
+                        </MessageActions>
+                      </MessageToolbar>
+                    ) : null}
+                  </MessageComponent>
+                )
+              })}
+
+              {isLoading && !isStreaming && (
+                <MessageResponse className="prose prose-sm dark:prose-invert max-w-none">
+                  {'Cargando...'}
+                </MessageResponse>
+              )}
+
+              {error && (
+                <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm mt-4">
+                  {error.message}
+                </div>
+              )}
+            </div>
+          )}
+        </ConversationContent>
+        <ConversationScrollButton className="z-40" />
+      </Conversation>
+
+      {/* Bottom fade indicator - Always in DOM for stability */}
+      <div
+        className={cn(
+          'absolute bottom-0 inset-x-0 h-14 pointer-events-none z-30 transition-opacity duration-300',
+          canScrollDown ? 'opacity-100' : 'opacity-0',
+        )}
+        style={{
+          background:
+            'linear-gradient(to top, hsl(var(--background)) 0%, hsl(var(--background) / 0.8) 50%, transparent 100%)',
+        }}
+      />
+    </div>
   )
 }

@@ -27,6 +27,21 @@ export async function createWorkbook(
     category?: DocumentCategory
   },
 ): Promise<{ data: Workbook | null; error: Error | null }> {
+  console.log('[workbookService] createWorkbook called:', {
+    userId,
+    name,
+    type,
+  })
+
+  // Ensure we're on the client side
+  if (typeof window === 'undefined') {
+    console.error('[workbookService] Cannot create workbook on server side')
+    return {
+      data: null,
+      error: new Error('Cannot create workbook on server side'),
+    }
+  }
+
   try {
     // Map type to category
     const category: DocumentCategory =
@@ -41,15 +56,30 @@ export async function createWorkbook(
       folder_id: options?.folderId || null,
     }
 
+    console.log(
+      '[workbookService] Inserting workbook into Supabase...',
+      insertData,
+    )
     const { data, error } = await supabase
       .from('workbooks')
       .insert(insertData)
       .select()
       .single()
 
-    if (error) throw error
+    console.log('[workbookService] Supabase response:', { data, error })
+
+    if (error) {
+      console.error('[workbookService] Supabase error:', error)
+      throw error
+    }
+
+    console.log(
+      '[workbookService] Workbook created:',
+      (data as Workbook | null)?.id,
+    )
     return { data: data as Workbook, error: null }
   } catch (err) {
+    console.error('[workbookService] Exception:', err)
     return { data: null, error: err as Error }
   }
 }

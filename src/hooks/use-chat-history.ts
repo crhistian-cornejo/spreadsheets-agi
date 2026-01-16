@@ -1,41 +1,66 @@
 'use client'
 
 import * as React from 'react'
-import { useAuth, chatService } from '@/lib/supabase'
 import type { Chat, ChatMessage, StoredUIMessagePart } from '@/lib/supabase'
+import { chatService, useAuth } from '@/lib/supabase'
 import type { StoredArtifact } from '@/hooks/use-spreadsheet-chat'
+
+/** UIMessage format for TanStack AI - exported for route loaders */
+export interface ChatUIMessage {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  parts: Array<StoredUIMessagePart>
+  createdAt: Date
+}
 
 interface UseChatHistoryReturn {
   chats: Array<Chat>
+  archivedChats: Array<Chat>
   currentChat: Chat | null
   messages: Array<ChatMessage>
   /** Messages converted to UIMessage format for TanStack AI */
-  uiMessages: Array<{
-    id: string
-    role: 'user' | 'assistant' | 'system'
-    parts: StoredUIMessagePart[]
-    createdAt: Date
-  }>
+  uiMessages: Array<ChatUIMessage>
   /** Artifacts from all messages in the current chat */
-  artifacts: StoredArtifact[]
+  artifacts: Array<StoredArtifact>
   isLoading: boolean
+  /** True when creating a new chat */
+  isCreating: boolean
   error: Error | null
+  /** Create a new chat - returns the new chat or null if failed */
   createChat: (title?: string) => Promise<Chat | null>
+  /** Load a chat by ID - use the route loader instead when possible */
   loadChat: (chatId: string) => Promise<void>
   updateChatTitle: (chatId: string, title: string) => Promise<void>
   deleteChat: (chatId: string) => Promise<void>
+  /** Archive a chat (soft delete) */
+  archiveChat: (chatId: string) => Promise<void>
+  /** Unarchive a chat */
+  unarchiveChat: (chatId: string) => Promise<void>
+  /** Archive multiple chats */
+  archiveChats: (chatIds: Array<string>) => Promise<void>
+  /** Delete multiple chats */
+  deleteChats: (chatIds: Array<string>) => Promise<void>
   /** Persist a full UIMessage with parts and artifacts */
   persistMessage: (
     message: {
       id: string
       role: 'user' | 'assistant'
-      parts: StoredUIMessagePart[]
-      artifacts?: StoredArtifact[]
+      parts: Array<StoredUIMessagePart>
+      artifacts?: Array<StoredArtifact>
     },
-    chatId?: string,
+    chatId: string,
   ) => Promise<ChatMessage | null>
   refreshChats: () => Promise<void>
+  refreshArchivedChats: () => Promise<void>
   clearCurrentChat: () => void
+  /** Set current chat directly (from route loader data) */
+  setCurrentChat: (chat: Chat | null) => void
+  /** Set current chat with preloaded data (from route loader) */
+  setCurrentChatFromPreloaded: (
+    chat: Chat,
+    uiMessages: Array<ChatUIMessage>,
+    artifacts?: Array<StoredArtifact>,
+  ) => void
 }
 
 /**
@@ -95,24 +120,22 @@ export function useChatHistory(): UseChatHistoryReturn {
   const { user } = useAuth()
 
   const [chats, setChats] = React.useState<Array<Chat>>([])
+  const [archivedChats, setArchivedChats] = React.useState<Array<Chat>>([])
   const [currentChat, setCurrentChat] = React.useState<Chat | null>(null)
   const [messages, setMessages] = React.useState<Array<ChatMessage>>([])
-  const [uiMessages, setUiMessages] = React.useState<
-    Array<{
-      id: string
-      role: 'user' | 'assistant' | 'system'
-      parts: StoredUIMessagePart[]
-      createdAt: Date
-    }>
-  >([])
-  const [artifacts, setArtifacts] = React.useState<StoredArtifact[]>([])
+  const [uiMessages, setUiMessages] = React.useState<Array<ChatUIMessage>>([])
+  const [artifacts, setArtifacts] = React.useState<Array<StoredArtifact>>([])
   const [isLoading, setIsLoading] = React.useState(false)
+  const [isCreating, setIsCreating] = React.useState(false)
   const [error, setError] = React.useState<Error | null>(null)
 
   // Track if we've already updated the title for this chat session
   const titleUpdatedRef = React.useRef<Set<string>>(new Set())
 
-  // Load all chats for the user
+  // Track in-flight operations to prevent duplicates
+  const createInFlightRef = React.useRef(false)
+
+  // Load all active chats for the user
   const refreshChats = React.useCallback(async () => {
     if (!user) return
 
@@ -131,29 +154,56 @@ export function useChatHistory(): UseChatHistoryReturn {
     }
   }, [user])
 
+  // Load archived chats for the user
+  const refreshArchivedChats = React.useCallback(async () => {
+    if (!user) return
+
+    try {
+      const { data, error: fetchError } = await chatService.getArchivedChats(
+        user.id,
+      )
+      if (fetchError) throw fetchError
+      setArchivedChats(data)
+    } catch (err) {
+      console.error('[useChatHistory] Error refreshing archived chats:', err)
+    }
+  }, [user])
+
   // Load chats on mount and when user changes
   React.useEffect(() => {
     refreshChats()
   }, [refreshChats])
 
   // Create a new chat (title is optional, will be set on first message)
+  // Protected against duplicate calls with in-flight tracking
   const createChat = React.useCallback(
     async (title?: string): Promise<Chat | null> => {
       if (!user) return null
 
+      // Prevent duplicate creates
+      if (createInFlightRef.current) {
+        console.log('[useChatHistory] createChat: Already in flight, skipping')
+        return null
+      }
+
+      createInFlightRef.current = true
+      setIsCreating(true)
       setError(null)
+
       // Use a temporary title if not provided
       const initialTitle = title || 'Nueva conversación'
 
       try {
+        console.log('[useChatHistory] Creating chat:', initialTitle)
         const { data, error: createError } = await chatService.createChat(
           user.id,
           initialTitle,
         )
         if (createError) throw createError
         if (data) {
+          console.log('[useChatHistory] Chat created:', data.id)
           setChats((prev) => [data, ...prev])
-          setCurrentChat(data)
+          // Don't set currentChat here - let the caller handle navigation
           setMessages([])
           setUiMessages([])
           setArtifacts([])
@@ -167,6 +217,9 @@ export function useChatHistory(): UseChatHistoryReturn {
         setError(err as Error)
         console.error('[useChatHistory] Error creating chat:', err)
         return null
+      } finally {
+        createInFlightRef.current = false
+        setIsCreating(false)
       }
     },
     [user],
@@ -256,6 +309,7 @@ export function useChatHistory(): UseChatHistoryReturn {
         if (deleteError) throw deleteError
 
         setChats((prev) => prev.filter((chat) => chat.id !== chatId))
+        setArchivedChats((prev) => prev.filter((chat) => chat.id !== chatId))
         titleUpdatedRef.current.delete(chatId)
 
         if (currentChat?.id === chatId) {
@@ -270,27 +324,146 @@ export function useChatHistory(): UseChatHistoryReturn {
     [currentChat],
   )
 
-  // Send a message in the current chat (or specified chat)
-  // This also handles auto-generating titles from the first user message
+  // Archive a chat (soft delete)
+  const archiveChat = React.useCallback(
+    async (chatId: string) => {
+      setError(null)
+
+      try {
+        const { error: archiveError } = await chatService.archiveChat(chatId)
+        if (archiveError) throw archiveError
+
+        // Move from chats to archivedChats
+        const archivedItem = chats.find((chat) => chat.id === chatId)
+        if (archivedItem) {
+          setChats((prev) => prev.filter((chat) => chat.id !== chatId))
+          setArchivedChats((prev) => [
+            { ...archivedItem, archived: true },
+            ...prev,
+          ])
+        }
+
+        if (currentChat?.id === chatId) {
+          setCurrentChat(null)
+          setMessages([])
+          setUiMessages([])
+          setArtifacts([])
+        }
+      } catch (err) {
+        setError(err as Error)
+        console.error('[useChatHistory] Error archiving chat:', err)
+      }
+    },
+    [currentChat, chats],
+  )
+
+  // Unarchive a chat
+  const unarchiveChat = React.useCallback(
+    async (chatId: string) => {
+      setError(null)
+
+      try {
+        const { error: unarchiveError } =
+          await chatService.unarchiveChat(chatId)
+        if (unarchiveError) throw unarchiveError
+
+        // Move from archivedChats to chats
+        const unarchivedItem = archivedChats.find((chat) => chat.id === chatId)
+        if (unarchivedItem) {
+          setArchivedChats((prev) => prev.filter((chat) => chat.id !== chatId))
+          setChats((prev) => [{ ...unarchivedItem, archived: false }, ...prev])
+        }
+      } catch (err) {
+        setError(err as Error)
+        console.error('[useChatHistory] Error unarchiving chat:', err)
+      }
+    },
+    [archivedChats],
+  )
+
+  // Archive multiple chats
+  const archiveChats = React.useCallback(
+    async (chatIds: Array<string>) => {
+      setError(null)
+
+      try {
+        // Archive all in parallel
+        await Promise.all(chatIds.map((id) => chatService.archiveChat(id)))
+
+        // Move from chats to archivedChats
+        const archivedItems = chats.filter((chat) => chatIds.includes(chat.id))
+        setChats((prev) => prev.filter((chat) => !chatIds.includes(chat.id)))
+        setArchivedChats((prev) => [
+          ...archivedItems.map((c) => ({ ...c, archived: true })),
+          ...prev,
+        ])
+
+        // Clear current if it was archived
+        if (currentChat && chatIds.includes(currentChat.id)) {
+          setCurrentChat(null)
+          setMessages([])
+          setUiMessages([])
+          setArtifacts([])
+        }
+      } catch (err) {
+        setError(err as Error)
+        console.error('[useChatHistory] Error archiving chats:', err)
+        // Refresh to get correct state
+        refreshChats()
+      }
+    },
+    [currentChat, chats, refreshChats],
+  )
+
+  // Delete multiple chats
+  const deleteChats = React.useCallback(
+    async (chatIds: Array<string>) => {
+      setError(null)
+
+      try {
+        // Delete all in parallel
+        await Promise.all(chatIds.map((id) => chatService.deleteChat(id)))
+
+        setChats((prev) => prev.filter((chat) => !chatIds.includes(chat.id)))
+        setArchivedChats((prev) =>
+          prev.filter((chat) => !chatIds.includes(chat.id)),
+        )
+        chatIds.forEach((id) => titleUpdatedRef.current.delete(id))
+
+        // Clear current if it was deleted
+        if (currentChat && chatIds.includes(currentChat.id)) {
+          setCurrentChat(null)
+          setMessages([])
+          setUiMessages([])
+          setArtifacts([])
+        }
+      } catch (err) {
+        setError(err as Error)
+        console.error('[useChatHistory] Error deleting chats:', err)
+        // Refresh to get correct state
+        refreshChats()
+      }
+    },
+    [currentChat, refreshChats],
+  )
+
+  // Persist a message to a specific chat
+  // chatId is REQUIRED - the caller must ensure a chat exists first
   const persistMessage = React.useCallback(
     async (
       message: {
         id: string
         role: 'user' | 'assistant'
-        parts: StoredUIMessagePart[]
-        artifacts?: StoredArtifact[]
+        parts: Array<StoredUIMessagePart>
+        artifacts?: Array<StoredArtifact>
       },
-      chatId?: string,
+      chatId: string,
     ): Promise<ChatMessage | null> => {
-      const targetChatId = chatId || currentChat?.id
-      if (!user || !targetChatId) {
-        console.warn(
-          '[useChatHistory] persistMessage: No user or targetChatId',
-          {
-            user: !!user,
-            targetChatId,
-          },
-        )
+      if (!user || !chatId) {
+        console.warn('[useChatHistory] persistMessage: No user or chatId', {
+          user: !!user,
+          chatId,
+        })
         return null
       }
 
@@ -299,7 +472,7 @@ export function useChatHistory(): UseChatHistoryReturn {
 
       console.log('[useChatHistory] persistMessage:', {
         role: message.role,
-        targetChatId,
+        chatId,
         contentPreview: textContent.slice(0, 50),
         hasParts: message.parts.length,
         hasArtifacts: message.artifacts?.length || 0,
@@ -309,7 +482,7 @@ export function useChatHistory(): UseChatHistoryReturn {
       try {
         // Save the full UIMessage with parts and artifacts
         const { data, error: saveError } = await chatService.saveUIMessage(
-          targetChatId,
+          chatId,
           user.id,
           {
             id: message.id,
@@ -324,13 +497,9 @@ export function useChatHistory(): UseChatHistoryReturn {
           setMessages((prev) => [...prev, data])
 
           // Auto-generate title from first USER message if title is generic
-          if (
-            message.role === 'user' &&
-            !titleUpdatedRef.current.has(targetChatId)
-          ) {
+          if (message.role === 'user' && !titleUpdatedRef.current.has(chatId)) {
             // Try to find the chat in local state
-            let chatToCheck =
-              chats.find((c) => c.id === targetChatId) || currentChat
+            let chatToCheck = chats.find((c) => c.id === chatId) || currentChat
 
             // If we still can't find the chat (just created), fetch it from DB
             if (!chatToCheck) {
@@ -338,17 +507,17 @@ export function useChatHistory(): UseChatHistoryReturn {
                 '[useChatHistory] Chat not in local state, fetching from DB',
               )
               const { data: fetchedChat } =
-                await chatService.getChatWithMessages(targetChatId)
+                await chatService.getChatWithMessages(chatId)
               chatToCheck = fetchedChat?.chat || null
             }
 
             console.log('[useChatHistory] Checking title update:', {
-              chatId: targetChatId,
+              chatId,
               chatTitle: chatToCheck?.title,
               isGeneric: chatToCheck
                 ? isGenericTitle(chatToCheck.title)
                 : 'no chat found',
-              alreadyUpdated: titleUpdatedRef.current.has(targetChatId),
+              alreadyUpdated: titleUpdatedRef.current.has(chatId),
             })
 
             if (chatToCheck && isGenericTitle(chatToCheck.title)) {
@@ -358,10 +527,10 @@ export function useChatHistory(): UseChatHistoryReturn {
                 to: newTitle,
               })
               // Fire and forget - don't wait for this
-              updateChatTitle(targetChatId, newTitle).catch(console.error)
+              updateChatTitle(chatId, newTitle).catch(console.error)
             } else {
               // Mark as updated so we don't try again
-              titleUpdatedRef.current.add(targetChatId)
+              titleUpdatedRef.current.add(chatId)
             }
           }
         }
@@ -383,20 +552,48 @@ export function useChatHistory(): UseChatHistoryReturn {
     setArtifacts([])
   }, [])
 
+  // Set current chat from preloaded route data (avoids double-loading)
+  const setCurrentChatFromPreloaded = React.useCallback(
+    (
+      chat: Chat,
+      preloadedUiMessages: Array<ChatUIMessage>,
+      preloadedArtifacts?: Array<StoredArtifact>,
+    ) => {
+      console.log('[useChatHistory] setCurrentChatFromPreloaded:', chat.id)
+      setCurrentChat(chat)
+      setUiMessages(preloadedUiMessages)
+      setArtifacts(preloadedArtifacts || [])
+      // Mark as having messages if there are any
+      if (preloadedUiMessages.length > 0) {
+        titleUpdatedRef.current.add(chat.id)
+      }
+    },
+    [],
+  )
+
   return {
     chats,
+    archivedChats,
     currentChat,
     messages,
     uiMessages,
     artifacts,
     isLoading,
+    isCreating,
     error,
     createChat,
     loadChat,
     updateChatTitle,
     deleteChat,
+    archiveChat,
+    unarchiveChat,
+    archiveChats,
+    deleteChats,
     persistMessage,
     refreshChats,
+    refreshArchivedChats,
     clearCurrentChat,
+    setCurrentChat,
+    setCurrentChatFromPreloaded,
   }
 }

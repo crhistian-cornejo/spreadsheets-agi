@@ -1,29 +1,29 @@
 'use client'
 
 import * as React from 'react'
-import { IconTable, IconRefresh } from '@tabler/icons-react'
-import { PencilIcon, DownloadIcon } from 'lucide-react'
+import { IconRefresh, IconTable } from '@tabler/icons-react'
+import { DownloadIcon, PencilIcon } from 'lucide-react'
+import type { ArtifactHistoryItem } from '@/hooks/use-spreadsheet-chat'
 import { cn } from '@/lib/utils'
+import { useChatContext } from '@/components/chat/ChatProvider'
+
+// AI Elements artifact components
+import {
+  Artifact,
+  ArtifactAction,
+  ArtifactActions,
+  ArtifactClose,
+  ArtifactContent,
+  ArtifactDescription,
+  ArtifactHeader,
+  ArtifactTitle,
+} from '@/components/ai-elements/artifact'
+
 const UniverSheet = React.lazy(() =>
   import('@/components/univer/UniverSheet').then((m) => ({
     default: m.UniverSheet,
   })),
 )
-
-// AI Elements artifact components
-import {
-  Artifact,
-  ArtifactHeader,
-  ArtifactContent,
-  ArtifactTitle,
-  ArtifactDescription,
-  ArtifactActions,
-  ArtifactAction,
-  ArtifactClose,
-} from '@/components/ai-elements/artifact'
-
-import { useChatContext } from '@/components/chat/ChatProvider'
-import type { ArtifactHistoryItem } from '@/hooks/use-spreadsheet-chat'
 
 // ============================================================================
 // ArtifactPanel Component
@@ -47,17 +47,14 @@ export function ArtifactPanel({
 
   if (!currentArtifact) return null
 
-  const handleDownload = () => {
-    // Create JSON blob and download
-    const blob = new Blob([JSON.stringify(currentArtifact.data, null, 2)], {
-      type: 'application/json',
+  const handleDownload = async () => {
+    const { exportArtifact } = await import('@/lib/export-utils')
+    await exportArtifact({
+      title: currentArtifact.title,
+      type: currentArtifact.type,
+      data: currentArtifact.data,
+      univerRef,
     })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${currentArtifact.title}.json`
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   return (
@@ -98,7 +95,7 @@ export function ArtifactPanel({
         </ArtifactActions>
       </ArtifactHeader>
 
-      <ArtifactContent className="p-2 sm:p-4 flex-1 min-h-0">
+      <ArtifactContent className="p-0.5 sm:p-2 flex-1 min-h-0">
         <div className="h-full rounded-lg overflow-hidden border bg-background">
           <React.Suspense
             fallback={
@@ -133,7 +130,7 @@ export function ArtifactPanel({
 // ============================================================================
 
 export interface ArtifactHistoryProps {
-  artifacts: ArtifactHistoryItem[]
+  artifacts: Array<ArtifactHistoryItem>
   currentId: string
   onSelect: (artifact: ArtifactHistoryItem) => void
   className?: string
@@ -150,7 +147,7 @@ export function ArtifactHistory({
   return (
     <div
       className={cn(
-        'px-2 sm:px-4 py-2 sm:py-3 border-t border-border bg-background/50 shrink-0',
+        'px-2 sm:px-4 py-2 sm:py-3 border-t border-border bg-background/50 shrink-0 artifact-history-container',
         className,
       )}
     >

@@ -51,10 +51,10 @@ export function UserAccountMenu({
     const trigger = (
         <div
             className={cn(
-                'flex w-full items-center gap-2 rounded-lg transition-colors outline-none',
+                'flex items-center gap-2 transition-colors outline-none',
                 isSidebar
-                    ? 'p-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                    : 'p-1 hover:opacity-80',
+                    ? 'w-full p-2 rounded-lg hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:w-auto group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:rounded-full'
+                    : 'p-1 rounded-full hover:opacity-80',
                 className,
             )}
         >

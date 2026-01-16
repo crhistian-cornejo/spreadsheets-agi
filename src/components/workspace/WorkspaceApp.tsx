@@ -3,7 +3,9 @@
 import * as React from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import type { Json } from '@/lib/supabase'
+import type { Chat, Json, StoredUIMessagePart } from '@/lib/supabase'
+import type { UIMessage } from '@tanstack/ai-react'
+import type { StoredArtifact } from '@/hooks/use-spreadsheet-chat'
 import { AppSidebar } from '@/components/layout/AppSidebar'
 import { UserAccountMenu } from '@/components/layout/UserAccountMenu'
 import { ModeToggle } from '@/components/layout/ModeToggle'
@@ -20,18 +22,37 @@ import { Separator } from '@/components/ui/separator'
 import { useWorkbooks } from '@/lib/stores/workbook-context'
 import { useChatHistory } from '@/hooks/use-chat-history'
 import {
+  ArchivedChatsDialog,
   CreateFileDialog,
   OpenFileDialog,
   ProfileDialog,
   SettingsDialog,
 } from '@/components/dialogs'
 
-interface WorkspaceAppProps {
-  /** Initial chat ID from URL params */
-  initialChatId?: string
+/** Preloaded chat data from route loader */
+export interface PreloadedChatData {
+  chatId: string
+  chat: Chat
+  uiMessages: Array<{
+    id: string
+    role: 'user' | 'assistant' | 'system'
+    parts: Array<StoredUIMessagePart>
+    createdAt: Date
+  }>
+  artifacts: Array<StoredArtifact> | undefined
 }
 
-export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
+export interface WorkspaceAppProps {
+  /** Initial chat ID from URL params */
+  initialChatId?: string
+  /** Preloaded chat data from route loader - makes loading instant */
+  preloadedChatData?: PreloadedChatData
+}
+
+export function WorkspaceApp({
+  initialChatId,
+  preloadedChatData,
+}: WorkspaceAppProps = {}) {
   const navigate = useNavigate()
   const { user, signOut, isLoading: authLoading } = useAuth()
   const isE2E = import.meta.env.VITE_E2E === 'true'
@@ -40,25 +61,23 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
     'sheets' | 'docs' | 'slides'
   >('sheets')
   // If we have an initialChatId, start in ai-chat mode
-  const [mode, setMode] = React.useState<'native' | 'ai-chat'>(
-    initialChatId ? 'ai-chat' : 'native',
-  )
+  const [mode, setMode] = React.useState<'native' | 'ai-chat'>('ai-chat')
   const [darkMode, setDarkMode] = React.useState(false)
   const [isAIChatPanelOpen, setIsAIChatPanelOpen] = React.useState(false)
-  const [isCreatingChat, setIsCreatingChat] = React.useState(false)
 
   // Dialog states
   const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false)
   const [isOpenDialogOpen, setIsOpenDialogOpen] = React.useState(false)
   const [isSettingsDialogOpen, setIsSettingsDialogOpen] = React.useState(false)
   const [isProfileDialogOpen, setIsProfileDialogOpen] = React.useState(false)
+  const [isArchivedChatsDialogOpen, setIsArchivedChatsDialogOpen] =
+    React.useState(false)
 
   // Redirect to login if not authenticated
   React.useEffect(() => {
     if (!authLoading && !user && !isE2E) {
       navigate({ to: '/login' })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authLoading, navigate])
 
   // Workbook store
@@ -81,55 +100,106 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
     [getRecentWorkbooks],
   )
 
-  // Chat history
+  // Chat history hook - used for sidebar list and mutations
   const {
     chats,
-    currentChat,
-    uiMessages: chatUIMessages,
-    artifacts: chatArtifacts,
+    archivedChats,
+    currentChat: hookCurrentChat,
+    uiMessages: hookUIMessages,
+    artifacts: hookArtifacts,
     isLoading: chatLoading,
+    isCreating: isCreatingChat,
     createChat,
     loadChat,
     deleteChat,
+    archiveChat,
+    unarchiveChat,
+    archiveChats,
+    deleteChats,
+    refreshArchivedChats,
     persistMessage,
+    setCurrentChatFromPreloaded,
   } = useChatHistory()
+
+  // Initialize from preloaded data if available (from route loader)
+  // This runs once when component mounts with preloaded data
+  React.useEffect(() => {
+    if (preloadedChatData && !hookCurrentChat) {
+      console.log(
+        '[WorkspaceApp] Initializing from preloaded data:',
+        preloadedChatData.chatId,
+      )
+      setCurrentChatFromPreloaded(
+        preloadedChatData.chat,
+        preloadedChatData.uiMessages,
+        preloadedChatData.artifacts,
+      )
+    }
+  }, [preloadedChatData, hookCurrentChat, setCurrentChatFromPreloaded])
+
+  // Use preloaded data if available and hook hasn't loaded yet, otherwise use hook data
+  const currentChat = preloadedChatData?.chat ?? hookCurrentChat
+  const chatUIMessages = preloadedChatData?.uiMessages ?? hookUIMessages
+  const chatArtifacts = preloadedChatData?.artifacts ?? hookArtifacts
 
   // Track which chatId we're currently loading to prevent race conditions
   const [loadingChatId, setLoadingChatId] = React.useState<string | null>(null)
 
-  // Check if chat data is ready (currentChat matches what we expect and not loading)
+  // Check if chat data is ready - SIMPLIFIED with preloaded data
   const isChatDataReady = React.useMemo(() => {
-    // If we're not in ai-chat mode, we're ready
+    // If we're not in ai-chat mode, we're always ready
     if (mode !== 'ai-chat') return true
+    // If we have preloaded data for this chat, we're immediately ready
+    if (preloadedChatData?.chatId === initialChatId) return true
     // If we're creating a new chat, wait for it
     if (isCreatingChat) return false
-    // If we're loading a specific chat, wait for it to match currentChat
-    if (loadingChatId) {
-      return currentChat?.id === loadingChatId && !chatLoading
-    }
-    // If we have an initialChatId from URL, wait for it to load
-    if (initialChatId && currentChat?.id !== initialChatId) return false
+    // If we're actively loading a chat via the hook, wait
+    if (chatLoading && loadingChatId) return false
     // Otherwise we're ready
-    return !chatLoading
+    return true
   }, [
     mode,
-    isCreatingChat,
-    loadingChatId,
-    currentChat?.id,
-    chatLoading,
+    preloadedChatData,
     initialChatId,
+    isCreatingChat,
+    chatLoading,
+    loadingChatId,
   ])
 
-  // Load initial chat from URL param if provided
+  // Load initial chat from URL param ONLY if no preloaded data
   React.useEffect(() => {
-    if (initialChatId && user && !currentChat) {
+    // Skip if we have preloaded data
+    if (preloadedChatData) return
+
+    if (initialChatId && user && !currentChat && !loadingChatId) {
       console.log(
-        '[WorkspaceApp] Loading initial chat from URL:',
+        '[WorkspaceApp] Loading initial chat from URL (no preload):',
         initialChatId,
       )
+      setLoadingChatId(initialChatId)
       loadChat(initialChatId)
+        .catch((err) => {
+          console.error('[WorkspaceApp] Failed to load initial chat:', err)
+          toast.error('Error', {
+            description:
+              'No se pudo cargar la conversación. Creando una nueva...',
+          })
+          // Redirect to base workspace and let auto-create handle it
+          navigate({ to: '/workspace' })
+        })
+        .finally(() => {
+          setLoadingChatId(null)
+        })
     }
-  }, [initialChatId, user, currentChat, loadChat])
+  }, [
+    initialChatId,
+    user,
+    currentChat,
+    loadChat,
+    loadingChatId,
+    navigate,
+    preloadedChatData,
+  ])
 
   // Update URL when chat changes (only in ai-chat mode)
   React.useEffect(() => {
@@ -154,7 +224,7 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
   const initialChatMessages = React.useMemo(() => {
     if (!chatUIMessages || chatUIMessages.length === 0) return []
     // Cast to UIMessage - StoredUIMessagePart is structurally compatible
-    return chatUIMessages as unknown as import('@tanstack/ai-react').UIMessage[]
+    return chatUIMessages as unknown as Array<UIMessage>
   }, [chatUIMessages])
 
   // Initial artifacts from chat history
@@ -163,55 +233,31 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
     return chatArtifacts
   }, [chatArtifacts])
 
-  // Auto-create chat when entering AI chat mode without an active chat
-  // This ensures chatId is always available before user sends first message
-  // Skip if we have an initialChatId (we're loading from URL)
-  React.useEffect(() => {
-    if (
-      mode === 'ai-chat' &&
-      !currentChat &&
-      !isCreatingChat &&
-      user &&
-      !initialChatId
-    ) {
-      setIsCreatingChat(true)
-      createChat()
-        .then((chat) => {
-          if (chat) {
-            console.log('[WorkspaceApp] Auto-created chat:', chat.id)
-          }
-        })
-        .catch((err) => {
-          console.error('[WorkspaceApp] Failed to auto-create chat:', err)
-        })
-        .finally(() => {
-          setIsCreatingChat(false)
-        })
-    }
-  }, [mode, currentChat, isCreatingChat, user, createChat, initialChatId])
+  // NOTE: We intentionally do NOT auto-create chats here.
+  // Users should click "New Chat" in the sidebar or the handleCreateChat button.
+  // This prevents the triple-chat creation bug caused by race conditions.
 
   // Handle persisting chat messages (with full parts and artifacts)
+  // IMPORTANT: A chat MUST exist before messages can be persisted.
+  // If no chat exists, we log an error - the route should handle chat creation.
   const handleMessagePersist = React.useCallback(
     async (message: {
       id: string
       role: 'user' | 'assistant'
-      parts: import('@/lib/supabase').StoredUIMessagePart[]
-      artifacts?: import('@/hooks/use-spreadsheet-chat').StoredArtifact[]
+      parts: Array<StoredUIMessagePart>
+      artifacts?: Array<StoredArtifact>
     }) => {
       if (!currentChat) {
-        // This shouldn't happen with auto-create, but handle gracefully
-        console.warn('[WorkspaceApp] No currentChat, creating one on-the-fly')
-        const newChat = await createChat()
-        if (newChat) {
-          // Persist using the newly created chat ID
-          await persistMessage(message, newChat.id)
-        }
+        console.error(
+          '[WorkspaceApp] No currentChat! Messages cannot be persisted without a chat.',
+          'Navigate to /workspace to create a new chat first.',
+        )
         return
       }
 
-      await persistMessage(message)
+      await persistMessage(message, currentChat.id)
     },
-    [currentChat, createChat, persistMessage],
+    [currentChat, persistMessage],
   )
 
   // Handle theme from settings
@@ -233,28 +279,72 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
   }, [darkMode])
 
   // Handle switching from AI chat to native with artifact data
-  const handleSwitchToNative = (data: Record<string, unknown>) => {
-    // If we have an active workbook, update it
+  const handleSwitchToNative = async (data: Record<string, unknown>) => {
+    // If we have an active workbook, update it and switch
     if (activeWorkbook) {
       updateWorkbook(activeWorkbook.id, data as Json)
+      setMode('native')
+      navigate({ to: '/workspace' })
+      return
     }
-    setMode('native')
+
+    // No active workbook - create one from the artifact data
+    // Detect type from data structure
+    const isSheet = data.sheets || data.cells || data.columns
+    const type = isSheet ? 'sheets' : 'docs'
+    const name =
+      (data.title as string) ||
+      (isSheet ? 'Hoja sin título' : 'Documento sin título')
+
+    const newWorkbook = await createWorkbook(name, type)
+    if (newWorkbook) {
+      await updateWorkbook(newWorkbook.id, data as Json)
+      setCurrentApp(type)
+      setMode('native')
+      navigate({ to: '/workspace' })
+      toast.success('Archivo creado', {
+        description: `"${newWorkbook.name}" creado desde el chat`,
+      })
+    } else {
+      // Fallback: open create dialog
+      setIsCreateDialogOpen(true)
+    }
   }
 
   // Handle creating a new file
   const handleCreateFile = async (name: string, type: 'sheets' | 'docs') => {
+    console.log('[WorkspaceApp] handleCreateFile called:', {
+      name,
+      type,
+      user: !!user,
+    })
+
+    if (!user) {
+      toast.error('Error', {
+        description: 'Debes iniciar sesión para crear archivos',
+      })
+      throw new Error('No user logged in')
+    }
+
     const newWorkbook = await createWorkbook(name, type)
+    console.log('[WorkspaceApp] createWorkbook result:', newWorkbook)
+
     if (newWorkbook) {
       setCurrentApp(type)
+      // Switch to native mode after creating the file
+      setMode('native')
+      navigate({ to: '/workspace' })
       toast.success('Archivo creado', {
         description: `"${newWorkbook.name}" está listo para usar`,
       })
       return
     }
 
+    // If we get here, creation failed
     toast.error('Error', {
-      description: 'No se pudo crear el archivo',
+      description: 'No se pudo crear el archivo. Verifica tu conexión.',
     })
+    throw new Error('Failed to create workbook')
   }
 
   // Handle importing a file
@@ -267,6 +357,9 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
     if (newWorkbook) {
       await updateWorkbook(newWorkbook.id, data as Json)
       setCurrentApp(type)
+      // Switch to native mode after importing the file
+      setMode('native')
+      navigate({ to: '/workspace' })
       toast.success('Archivo importado', {
         description: `"${name}" se ha importado correctamente`,
       })
@@ -330,6 +423,13 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
 
   // Handle loading a chat
   const handleLoadChat = async (id: string) => {
+    // Don't reload the same chat
+    if (currentChat?.id === id && !chatLoading) {
+      // Just navigate if we're already on this chat
+      navigate({ to: '/workspace/chat/$chatId', params: { chatId: id } })
+      return
+    }
+
     // Set loading state BEFORE starting the load
     setLoadingChatId(id)
     try {
@@ -342,8 +442,13 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
           description: `"${chat.title}"`,
         })
       }
+    } catch (error) {
+      console.error('[WorkspaceApp] Error loading chat:', error)
+      toast.error('Error al cargar', {
+        description: 'No se pudo cargar la conversación',
+      })
     } finally {
-      // Clear loading state
+      // Always clear loading state
       setLoadingChatId(null)
     }
   }
@@ -351,7 +456,6 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
   // Handle deleting a chat
   const handleDeleteChat = async (id: string) => {
     const chat = chats.find((c) => c.id === id)
-    const wasCurrentChat = currentChat?.id === id
 
     await deleteChat(id)
     toast.success('Conversación eliminada', {
@@ -359,14 +463,31 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
         ? `"${chat.title}" ha sido eliminada`
         : 'Conversación eliminada',
     })
+    // Note: If this was the current chat, the auto-create effect will
+    // automatically create a new one since currentChat becomes null
+  }
 
-    // If we deleted the current chat, create a new one after a brief delay
-    // to give user feedback about the deletion
-    if (wasCurrentChat && mode === 'ai-chat') {
-      setTimeout(() => {
-        createChat()
-      }, 100)
-    }
+  // Handle archiving a chat
+  const handleArchiveChat = async (id: string) => {
+    const chat = chats.find((c) => c.id === id)
+    await archiveChat(id)
+    toast.success('Conversación archivada', {
+      description: chat
+        ? `"${chat.title}" ha sido movida a archivados`
+        : 'Conversación archivada',
+    })
+  }
+
+  // Handle archiving multiple chats
+  const handleArchiveChats = async (ids: Array<string>) => {
+    await archiveChats(ids)
+    toast.success(`${ids.length} conversaciones archivadas`)
+  }
+
+  // Handle deleting multiple chats
+  const handleDeleteChats = async (ids: Array<string>) => {
+    await deleteChats(ids)
+    toast.success(`${ids.length} conversaciones eliminadas`)
   }
 
   // Handle exporting a workbook
@@ -393,20 +514,29 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
   // Handle mode change with URL updates
   const handleModeChange = React.useCallback(
     (newMode: 'native' | 'ai-chat') => {
-      setMode(newMode)
       if (newMode === 'native') {
-        // When switching to native, go to base workspace URL
+        // When switching to native, require an active workbook
+        if (!activeWorkbook) {
+          // Open create file dialog instead of switching
+          setIsCreateDialogOpen(true)
+          return
+        }
+        // Only switch if we have an active workbook
+        setMode(newMode)
         navigate({ to: '/workspace' })
-      } else if (newMode === 'ai-chat' && currentChat?.id) {
-        // When switching to ai-chat with existing chat, use chat URL
-        navigate({
-          to: '/workspace/chat/$chatId',
-          params: { chatId: currentChat.id },
-        })
+      } else {
+        setMode(newMode)
+        if (currentChat?.id) {
+          // When switching to ai-chat with existing chat, use chat URL
+          navigate({
+            to: '/workspace/chat/$chatId',
+            params: { chatId: currentChat.id },
+          })
+        }
+        // If switching to ai-chat without a chat, the auto-create effect will handle it
       }
-      // If switching to ai-chat without a chat, the auto-create effect will handle it
     },
-    [navigate, currentChat?.id],
+    [navigate, currentChat?.id, activeWorkbook],
   )
 
   // Handle dark mode toggle
@@ -483,6 +613,17 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
             onCreateChat={handleCreateChat}
             onLoadChat={handleLoadChat}
             onDeleteChat={handleDeleteChat}
+            onArchiveChat={handleArchiveChat}
+            onArchiveChats={handleArchiveChats}
+            onDeleteChats={handleDeleteChats}
+            onOpenArchivedChats={() => {
+              refreshArchivedChats()
+              setIsArchivedChatsDialogOpen(true)
+            }}
+            // Artifacts props - artifacts are workbooks with ARTIFACT_WORKBOOK_PREFIX
+            artifacts={recentWorkbooks}
+            onLoadArtifact={handleLoadWorkbook}
+            onDeleteArtifact={handleDeleteWorkbook}
           />
         )}
 
@@ -515,7 +656,7 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
                   Creando chat...
                 </span>
               )}
-              {chatLoading && !isCreatingChat && mode === 'ai-chat' && (
+              {loadingChatId && !isCreatingChat && mode === 'ai-chat' && (
                 <span className="text-xs text-muted-foreground animate-pulse">
                   Cargando chat...
                 </span>
@@ -573,6 +714,7 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
                 initialMessages={initialChatMessages}
                 initialArtifacts={initialArtifacts}
                 onMessagePersist={handleMessagePersist}
+                workbookId={activeWorkbook?.id || null}
                 // App type props
                 currentApp={currentApp}
                 onAppChange={setCurrentApp}
@@ -596,6 +738,7 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
                 initialMessages={initialChatMessages}
                 initialArtifacts={initialArtifacts}
                 onMessagePersist={handleMessagePersist}
+                workbookId={activeWorkbook?.id || null}
               />
             )}
           </main>
@@ -626,6 +769,14 @@ export function WorkspaceApp({ initialChatId }: WorkspaceAppProps = {}) {
       <ProfileDialog
         open={isProfileDialogOpen}
         onOpenChange={setIsProfileDialogOpen}
+      />
+
+      <ArchivedChatsDialog
+        open={isArchivedChatsDialogOpen}
+        onOpenChange={setIsArchivedChatsDialogOpen}
+        archivedChats={archivedChats}
+        onUnarchive={unarchiveChat}
+        onDelete={deleteChat}
       />
     </SidebarProvider>
   )

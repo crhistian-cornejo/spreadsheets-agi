@@ -439,14 +439,14 @@ export interface StoredUIMessagePart {
   id?: string
   name?: string
   arguments?: string
-  input?: unknown
+  input?: Record<string, unknown>
   state?: string
   approval?: {
     id: string
     needsApproval: boolean
     approved?: boolean
   }
-  output?: unknown
+  output?: Record<string, unknown>
   // For tool-result parts
   toolCallId?: string
   error?: string

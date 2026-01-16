@@ -78,6 +78,8 @@ export interface Message {
   toolCalls?: ToolCall[]
   /** File attachments (user messages) */
   attachments?: FileAttachment[]
+  /** Thinking/reasoning content from AI model (assistant only) */
+  thinkingContent?: string
 }
 
 // ============================================================================

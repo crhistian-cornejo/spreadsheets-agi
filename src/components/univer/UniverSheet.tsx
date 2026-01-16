@@ -51,6 +51,24 @@ export interface FRange {
   setHorizontalAlignment: (alignment: 'left' | 'center' | 'right') => void
 }
 
+// Conditional formatting rule builder interface
+interface ConditionalFormattingRuleBuilder {
+  whenNumberGreaterThan: (value: number) => ConditionalFormattingRuleBuilder
+  whenNumberLessThan: (value: number) => ConditionalFormattingRuleBuilder
+  whenNumberBetween: (
+    start: number,
+    end: number,
+  ) => ConditionalFormattingRuleBuilder
+  whenNumberEqualTo: (value: number) => ConditionalFormattingRuleBuilder
+  whenCellNotEmpty: () => ConditionalFormattingRuleBuilder
+  setRanges: (ranges: unknown[]) => ConditionalFormattingRuleBuilder
+  setBackground: (color: string) => ConditionalFormattingRuleBuilder
+  setFontColor: (color: string) => ConditionalFormattingRuleBuilder
+  setBold: (bold: boolean) => ConditionalFormattingRuleBuilder
+  setItalic: (italic: boolean) => ConditionalFormattingRuleBuilder
+  build: () => unknown
+}
+
 // Ref handle exposed to parent components
 export interface UniverSheetHandle {
   /** Get the Univer API instance */
@@ -73,6 +91,45 @@ export interface UniverSheetHandle {
   ) => boolean
   /** Get the current workbook data snapshot for saving */
   getWorkbookData: () => Record<string, unknown> | null
+  /** Insert rows at position */
+  insertRows: (startRow: number, count: number) => boolean
+  /** Delete rows at position */
+  deleteRows: (startRow: number, count: number) => boolean
+  /** Insert columns at position */
+  insertColumns: (startColumn: number, count: number) => boolean
+  /** Delete columns at position */
+  deleteColumns: (startColumn: number, count: number) => boolean
+  /** Resize column width */
+  resizeColumn: (column: number, width: number) => boolean
+  /** Resize row height */
+  resizeRow: (row: number, height: number) => boolean
+  /** Merge cells in range */
+  mergeCells: (range: string) => boolean
+  /** Unmerge cells in range */
+  unmergeCells: (range: string) => boolean
+  /** Sort data by column */
+  sortByColumn: (column: number, ascending: boolean) => boolean
+  /** Create filter on range */
+  createFilter: (range: string, column: number, values: string[]) => boolean
+  /** Add conditional formatting rule */
+  addConditionalFormat: (
+    range: string,
+    ruleType:
+      | 'greaterThan'
+      | 'lessThan'
+      | 'between'
+      | 'equalTo'
+      | 'notEmpty'
+      | 'colorScale',
+    value?: number,
+    value2?: number,
+    format?: {
+      background?: string
+      fontColor?: string
+      bold?: boolean
+      italic?: boolean
+    },
+  ) => boolean
 }
 
 export interface CellStyle {
@@ -109,11 +166,15 @@ export const UniverSheet = forwardRef<UniverSheetHandle, UniverSheetProps>(
     } | null>(null)
     const initializedRef = useRef(false)
     const onChangeRef = useRef(onChange)
+    const onReadyRef = useRef(onReady)
+    const initialDataRef = useRef(initialData)
 
-    // Keep onChange ref updated
+    // Keep refs updated
     useEffect(() => {
       onChangeRef.current = onChange
-    }, [onChange])
+      onReadyRef.current = onReady
+      initialDataRef.current = initialData
+    }, [onChange, onReady, initialData])
 
     // Helper function to get the API safely
     const getAPI = useCallback((): UniverAPI | null => {
@@ -283,12 +344,324 @@ export const UniverSheet = forwardRef<UniverSheetHandle, UniverSheetProps>(
         if (!workbook) return null
         return workbook.save()
       } catch (error) {
-        console.error('Error getting workbook data:', error)
         return null
       }
     }, [])
 
-    // Create the handle object
+    // Insert rows at position
+    const insertRows = useCallback(
+      (startRow: number, count: number): boolean => {
+        try {
+          const api = univerAPIRef.current
+          if (!api) return false
+          const workbook = api.getActiveWorkbook()
+          if (!workbook) return false
+          const sheet = workbook.getActiveSheet() as FSheet & {
+            insertRows: (rowIndex: number, numRows: number) => void
+          }
+          if (!sheet || !sheet.insertRows) return false
+          sheet.insertRows(startRow, count)
+          return true
+        } catch {
+          return false
+        }
+      },
+      [],
+    )
+
+    // Delete rows at position
+    const deleteRows = useCallback(
+      (startRow: number, count: number): boolean => {
+        try {
+          const api = univerAPIRef.current
+          if (!api) return false
+          const workbook = api.getActiveWorkbook()
+          if (!workbook) return false
+          const sheet = workbook.getActiveSheet() as FSheet & {
+            deleteRows: (rowPosition: number, howMany: number) => void
+          }
+          if (!sheet || !sheet.deleteRows) return false
+          sheet.deleteRows(startRow, count)
+          return true
+        } catch {
+          return false
+        }
+      },
+      [],
+    )
+
+    // Insert columns at position
+    const insertColumns = useCallback(
+      (startColumn: number, count: number): boolean => {
+        try {
+          const api = univerAPIRef.current
+          if (!api) return false
+          const workbook = api.getActiveWorkbook()
+          if (!workbook) return false
+          const sheet = workbook.getActiveSheet() as FSheet & {
+            insertColumns: (columnIndex: number, numColumns: number) => void
+          }
+          if (!sheet || !sheet.insertColumns) return false
+          sheet.insertColumns(startColumn, count)
+          return true
+        } catch {
+          return false
+        }
+      },
+      [],
+    )
+
+    // Delete columns at position
+    const deleteColumns = useCallback(
+      (startColumn: number, count: number): boolean => {
+        try {
+          const api = univerAPIRef.current
+          if (!api) return false
+          const workbook = api.getActiveWorkbook()
+          if (!workbook) return false
+          const sheet = workbook.getActiveSheet() as FSheet & {
+            deleteColumns: (columnPosition: number, howMany: number) => void
+          }
+          if (!sheet || !sheet.deleteColumns) return false
+          sheet.deleteColumns(startColumn, count)
+          return true
+        } catch {
+          return false
+        }
+      },
+      [],
+    )
+
+    // Resize column width
+    const resizeColumn = useCallback(
+      (column: number, width: number): boolean => {
+        try {
+          const api = univerAPIRef.current
+          if (!api) return false
+          const workbook = api.getActiveWorkbook()
+          if (!workbook) return false
+          const sheet = workbook.getActiveSheet() as FSheet & {
+            setColumnWidths: (
+              startColumn: number,
+              numColumns: number,
+              width: number,
+            ) => void
+          }
+          if (!sheet || !sheet.setColumnWidths) return false
+          sheet.setColumnWidths(column, 1, width)
+          return true
+        } catch {
+          return false
+        }
+      },
+      [],
+    )
+
+    // Resize row height
+    const resizeRow = useCallback((row: number, height: number): boolean => {
+      try {
+        const api = univerAPIRef.current
+        if (!api) return false
+        const workbook = api.getActiveWorkbook()
+        if (!workbook) return false
+        const sheet = workbook.getActiveSheet() as FSheet & {
+          setRowHeight: (row: number, height: number) => void
+        }
+        if (!sheet || !sheet.setRowHeight) return false
+        sheet.setRowHeight(row, height)
+        return true
+      } catch {
+        return false
+      }
+    }, [])
+
+    // Merge cells in range
+    const mergeCells = useCallback((range: string): boolean => {
+      try {
+        const api = univerAPIRef.current
+        if (!api) return false
+        const workbook = api.getActiveWorkbook()
+        if (!workbook) return false
+        const sheet = workbook.getActiveSheet()
+        if (!sheet) return false
+        const rangeRef = sheet.getRange(range) as FRange & { merge: () => void }
+        if (!rangeRef.merge) return false
+        rangeRef.merge()
+        return true
+      } catch {
+        return false
+      }
+    }, [])
+
+    // Unmerge cells in range
+    const unmergeCells = useCallback((range: string): boolean => {
+      try {
+        const api = univerAPIRef.current
+        if (!api) return false
+        const workbook = api.getActiveWorkbook()
+        if (!workbook) return false
+        const sheet = workbook.getActiveSheet()
+        if (!sheet) return false
+        const rangeRef = sheet.getRange(range) as FRange & {
+          breakApart: () => void
+        }
+        if (!rangeRef.breakApart) return false
+        rangeRef.breakApart()
+        return true
+      } catch {
+        return false
+      }
+    }, [])
+
+    // Sort data by column
+    const sortByColumn = useCallback(
+      (column: number, ascending: boolean): boolean => {
+        try {
+          const api = univerAPIRef.current
+          if (!api) return false
+          const workbook = api.getActiveWorkbook()
+          if (!workbook) return false
+          const sheet = workbook.getActiveSheet() as FSheet & {
+            sort: (colIndex: number, asc?: boolean) => void
+          }
+          if (!sheet || !sheet.sort) return false
+          sheet.sort(column, ascending)
+          return true
+        } catch {
+          return false
+        }
+      },
+      [],
+    )
+
+    // Create filter on range
+    const createFilter = useCallback(
+      (range: string, column: number, values: string[]): boolean => {
+        try {
+          const api = univerAPIRef.current
+          if (!api) return false
+          const workbook = api.getActiveWorkbook()
+          if (!workbook) return false
+          const sheet = workbook.getActiveSheet()
+          if (!sheet) return false
+          const rangeRef = sheet.getRange(range) as FRange & {
+            createFilter: () => {
+              setColumnFilterCriteria: (col: number, criteria: unknown) => void
+            } | null
+            getFilter: () => { remove: () => void } | null
+          }
+
+          // Create filter or get existing
+          let filter = rangeRef.createFilter?.()
+          if (!filter && rangeRef.getFilter) {
+            rangeRef.getFilter()?.remove()
+            filter = rangeRef.createFilter?.()
+          }
+          if (!filter) return false
+
+          // Set filter criteria
+          filter.setColumnFilterCriteria(column, {
+            colId: column,
+            filters: { filters: values },
+          })
+          return true
+        } catch {
+          return false
+        }
+      },
+      [],
+    )
+
+    // Add conditional formatting rule
+    const addConditionalFormat = useCallback(
+      (
+        range: string,
+        ruleType:
+          | 'greaterThan'
+          | 'lessThan'
+          | 'between'
+          | 'equalTo'
+          | 'notEmpty'
+          | 'colorScale',
+        value?: number,
+        value2?: number,
+        format?: {
+          background?: string
+          fontColor?: string
+          bold?: boolean
+          italic?: boolean
+        },
+      ): boolean => {
+        try {
+          const api = univerAPIRef.current
+          if (!api) return false
+          const workbook = api.getActiveWorkbook()
+          if (!workbook) return false
+          const sheet = workbook.getActiveSheet() as FSheet & {
+            newConditionalFormattingRule: () => ConditionalFormattingRuleBuilder
+            addConditionalFormattingRule: (rule: unknown) => void
+          }
+          if (!sheet || !sheet.newConditionalFormattingRule) return false
+
+          const rangeRef = sheet.getRange(range) as FRange & {
+            getRange: () => unknown
+          }
+
+          // Build the rule
+          let builder = sheet.newConditionalFormattingRule()
+
+          // Apply condition based on ruleType
+          switch (ruleType) {
+            case 'greaterThan':
+              if (value !== undefined)
+                builder = builder.whenNumberGreaterThan(value)
+              break
+            case 'lessThan':
+              if (value !== undefined)
+                builder = builder.whenNumberLessThan(value)
+              break
+            case 'between':
+              if (value !== undefined && value2 !== undefined) {
+                builder = builder.whenNumberBetween(value, value2)
+              }
+              break
+            case 'equalTo':
+              if (value !== undefined)
+                builder = builder.whenNumberEqualTo(value)
+              break
+            case 'notEmpty':
+              builder = builder.whenCellNotEmpty()
+              break
+            case 'colorScale':
+              // Color scale needs special handling - use default for now
+              builder = builder.whenCellNotEmpty()
+              break
+          }
+
+          // Set ranges
+          builder = builder.setRanges([rangeRef.getRange()])
+
+          // Apply formatting
+          if (format) {
+            if (format.background)
+              builder = builder.setBackground(format.background)
+            if (format.fontColor)
+              builder = builder.setFontColor(format.fontColor)
+            if (format.bold) builder = builder.setBold(true)
+            if (format.italic) builder = builder.setItalic(true)
+          }
+
+          const rule = builder.build()
+          sheet.addConditionalFormattingRule(rule)
+          return true
+        } catch {
+          return false
+        }
+      },
+      [],
+    )
+
+    // Create the handle object - memoized to avoid recreating on every render
     const handle: UniverSheetHandle = {
       getAPI,
       setCellValue,
@@ -298,19 +671,27 @@ export const UniverSheet = forwardRef<UniverSheetHandle, UniverSheetProps>(
       formatCells,
       createSheetWithData,
       getWorkbookData,
+      insertRows,
+      deleteRows,
+      insertColumns,
+      deleteColumns,
+      resizeColumn,
+      resizeRow,
+      mergeCells,
+      unmergeCells,
+      sortByColumn,
+      createFilter,
+      addConditionalFormat,
     }
 
+    // Keep handle ref updated for use in effects
+    const handleRef = useRef(handle)
+    useEffect(() => {
+      handleRef.current = handle
+    })
+
     // Expose handle to parent via ref
-    useImperativeHandle(ref, () => handle, [
-      getAPI,
-      setCellValue,
-      setCellValues,
-      getCellValue,
-      applyFormula,
-      formatCells,
-      createSheetWithData,
-      getWorkbookData,
-    ])
+    useImperativeHandle(ref, () => handle)
 
     useEffect(() => {
       if (!containerRef.current || initializedRef.current) return
@@ -362,8 +743,8 @@ export const UniverSheet = forwardRef<UniverSheetHandle, UniverSheetProps>(
           univer as unknown as typeof univerInstanceRef.current
 
         // Create a new workbook with initial data or empty
-        if (initialData) {
-          univerAPI.createWorkbook(initialData)
+        if (initialDataRef.current) {
+          univerAPI.createWorkbook(initialDataRef.current)
         } else {
           univerAPI.createWorkbook({})
         }
@@ -371,8 +752,8 @@ export const UniverSheet = forwardRef<UniverSheetHandle, UniverSheetProps>(
         setIsLoading(false)
 
         // Notify parent that API is ready
-        if (onReady) {
-          onReady(handle)
+        if (onReadyRef.current) {
+          onReadyRef.current(handleRef.current)
         }
 
         // Set up command listener for detecting changes (debounced)

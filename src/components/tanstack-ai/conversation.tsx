@@ -2,7 +2,12 @@
 
 import * as React from 'react'
 import { cn } from '@/lib/utils'
-import { IconArrowDown, IconSparkles } from '@tabler/icons-react'
+import {
+  IconArrowDown,
+  IconSparkles,
+  IconBrain,
+  IconChevronDown,
+} from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import {
   ChatMessage,
@@ -12,6 +17,56 @@ import {
 } from './message'
 import { ToolCallList } from './tool-call'
 import type { Message, ChatStatus } from './types'
+
+// ============================================================================
+// Thinking Part Component
+// ============================================================================
+
+interface ThinkingPartProps {
+  content: string
+  isComplete?: boolean
+  className?: string
+}
+
+function ThinkingPart({
+  content,
+  isComplete = false,
+  className,
+}: ThinkingPartProps) {
+  const [isOpen, setIsOpen] = React.useState(!isComplete)
+
+  // Auto-collapse when complete
+  React.useEffect(() => {
+    if (isComplete) {
+      const timer = setTimeout(() => setIsOpen(false), 500)
+      return () => clearTimeout(timer)
+    }
+  }, [isComplete])
+
+  return (
+    <details
+      open={isOpen}
+      className={cn(
+        'group rounded-lg border border-muted bg-muted/30 text-sm',
+        className,
+      )}
+      onToggle={(e) => setIsOpen((e.target as HTMLDetailsElement).open)}
+    >
+      <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-muted-foreground hover:text-foreground">
+        <IconBrain className="size-4" />
+        <span className="font-medium">
+          {isComplete ? 'Razonamiento' : 'Pensando...'}
+        </span>
+        <IconChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-muted px-3 py-2">
+        <pre className="whitespace-pre-wrap font-sans text-xs text-muted-foreground leading-relaxed">
+          {content}
+        </pre>
+      </div>
+    </details>
+  )
+}
 
 // ============================================================================
 // Conversation Container
@@ -24,6 +79,8 @@ export interface ConversationProps extends React.HTMLAttributes<HTMLDivElement> 
   status?: ChatStatus
   /** Streaming content preview */
   streamingContent?: string
+  /** Streaming thinking content */
+  streamingThinking?: string
   /** Whether to auto-scroll to bottom */
   autoScroll?: boolean
   /** Empty state component */
@@ -34,6 +91,7 @@ export function Conversation({
   messages,
   status = 'ready',
   streamingContent = '',
+  streamingThinking = '',
   autoScroll = true,
   emptyState,
   className,
@@ -100,6 +158,13 @@ export function Conversation({
           {messages.map((message) => (
             <ChatMessage key={message.id} from={message.role}>
               <ChatMessageContent>
+                {/* Thinking content (reasoning) - rendered before main content */}
+                {message.thinkingContent && (
+                  <ThinkingPart
+                    content={message.thinkingContent}
+                    isComplete={!!message.content}
+                  />
+                )}
                 {message.content && (
                   <ChatMessageText content={message.content} />
                 )}
@@ -114,10 +179,17 @@ export function Conversation({
           {isStreaming && (
             <ChatMessage from="assistant">
               <ChatMessageContent>
+                {/* Show thinking while streaming */}
+                {streamingThinking && (
+                  <ThinkingPart
+                    content={streamingThinking}
+                    isComplete={!!streamingContent}
+                  />
+                )}
                 {streamingContent ? (
                   <ChatMessageText content={streamingContent} />
                 ) : (
-                  <StreamingIndicator />
+                  !streamingThinking && <StreamingIndicator />
                 )}
               </ChatMessageContent>
             </ChatMessage>

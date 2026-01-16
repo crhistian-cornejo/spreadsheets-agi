@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { IconCheck } from '@tabler/icons-react'
+import { IconCheck, IconBrain, IconChevronDown } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { Logo } from '@/components/ui/Logo'
 import type { UIMessage } from '@tanstack/ai-react'
@@ -31,6 +31,55 @@ import { Suggestions, Suggestion } from '@/components/ai-elements/suggestion'
 import { useChatContext } from './ChatProvider'
 
 // ============================================================================
+// Thinking Part Component
+// ============================================================================
+
+interface ThinkingPartProps {
+  content: string
+  isComplete?: boolean
+  className?: string
+}
+
+function ThinkingPart({
+  content,
+  isComplete = false,
+  className,
+}: ThinkingPartProps) {
+  const [isOpen, setIsOpen] = React.useState(!isComplete)
+
+  React.useEffect(() => {
+    if (isComplete) {
+      const timer = setTimeout(() => setIsOpen(false), 800)
+      return () => clearTimeout(timer)
+    }
+  }, [isComplete])
+
+  return (
+    <details
+      open={isOpen}
+      className={cn(
+        'group rounded-lg border border-violet-500/30 bg-violet-500/5 text-sm mb-3',
+        className,
+      )}
+      onToggle={(e) => setIsOpen((e.target as HTMLDetailsElement).open)}
+    >
+      <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300">
+        <IconBrain className="size-4 animate-pulse" />
+        <span className="font-medium text-xs">
+          {isComplete ? 'Razonamiento completado' : 'Pensando...'}
+        </span>
+        <IconChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-violet-500/20 px-3 py-2 max-h-48 overflow-y-auto">
+        <pre className="whitespace-pre-wrap font-sans text-xs text-muted-foreground leading-relaxed">
+          {content}
+        </pre>
+      </div>
+    </details>
+  )
+}
+
+// ============================================================================
 // Tool Display Names
 // ============================================================================
 
@@ -58,10 +107,33 @@ function getTextContent(message: UIMessage): string {
   if (!message.parts || message.parts.length === 0) {
     return ''
   }
-  
+
   return message.parts
     .filter((part): part is { type: 'text'; content: string } => {
-      return part.type === 'text' && typeof (part as { content?: string }).content === 'string'
+      return (
+        part.type === 'text' &&
+        typeof (part as { content?: string }).content === 'string'
+      )
+    })
+    .map((part) => part.content)
+    .join('')
+}
+
+// ============================================================================
+// Helper to extract thinking content from UIMessage parts
+// ============================================================================
+
+function getThinkingContent(message: UIMessage): string {
+  if (!message.parts || message.parts.length === 0) {
+    return ''
+  }
+
+  return message.parts
+    .filter((part): part is { type: 'thinking'; content: string } => {
+      return (
+        part.type === 'thinking' &&
+        typeof (part as { content?: string }).content === 'string'
+      )
     })
     .map((part) => part.content)
     .join('')
@@ -114,7 +186,8 @@ export function ChatConversation({
         partsCount: m.parts.length,
         parts: m.parts.map((p) => ({
           type: p.type,
-          hasContent: p.type === 'text' ? !!(p as { content: string }).content : false,
+          hasContent:
+            p.type === 'text' ? !!(p as { content: string }).content : false,
         })),
       })),
     })
@@ -124,17 +197,19 @@ export function ChatConversation({
   const renderMessageContent = React.useCallback(
     (message: UIMessage, isCurrentlyStreaming: boolean) => {
       const textContent = getTextContent(message)
-      
+      const thinkingContent = getThinkingContent(message)
+
       // Debug: log message content extraction
-      if (textContent) {
-        console.log('[ChatConversation] Rendering message with text:', {
+      if (textContent || thinkingContent) {
+        console.log('[ChatConversation] Rendering message:', {
           messageId: message.id,
           role: message.role,
           textLength: textContent.length,
+          thinkingLength: thinkingContent.length,
           textPreview: textContent.substring(0, 50),
         })
       } else {
-        console.log('[ChatConversation] Message has no text content:', {
+        console.log('[ChatConversation] Message has no content:', {
           messageId: message.id,
           role: message.role,
           parts: message.parts.map((p) => p.type),
@@ -146,8 +221,19 @@ export function ChatConversation({
         (part) => part.type === 'tool-call',
       )
 
+      // Determine if thinking is complete (we have text content already)
+      const isThinkingComplete = !!textContent || !isCurrentlyStreaming
+
       return (
         <>
+          {/* Thinking/Reasoning content - show first while AI is reasoning */}
+          {thinkingContent && (
+            <ThinkingPart
+              content={thinkingContent}
+              isComplete={isThinkingComplete}
+            />
+          )}
+
           {/* Main text content */}
           {textContent && (
             <MessageResponse
